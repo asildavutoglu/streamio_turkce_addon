@@ -1,3 +1,13 @@
+---
+title: Stremio Turkce Altyazi Plus
+emoji: 🎬
+colorFrom: purple
+colorTo: indigo
+sdk: docker
+app_port: 7000
+pinned: false
+---
+
 # Türkçe Altyazı+ (Stremio Addon) 🎬 ⛩️
 
 Stremio için **Film**, **Dizi** ve özellikle **Animeler** için geliştirilmiş çok kaynaklı Türkçe altyazı eklentisi.

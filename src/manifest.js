@@ -10,4 +10,8 @@ module.exports = {
   background: 'https://images.unsplash.com/photo-1536440136628-849c177e76a1?auto=format&fit=crop&w=1920&q=80',
   logo: 'https://i.imgur.com/8Q9eU0q.png',
   contactEmail: 'support@stremio-addon.local',
+  behaviorHints: {
+    configurable: true,
+    configurationRequired: false,
+  },
 };

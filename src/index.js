@@ -34,14 +34,24 @@ function getBaseUrl(req) {
   }
 }
 
+function parseUserConfig(rawConfig) {
+  if (!rawConfig) return {};
+  try {
+    const jsonStr = Buffer.from(rawConfig, 'base64url').toString('utf8');
+    return JSON.parse(jsonStr);
+  } catch {
+    return {};
+  }
+}
+
 // Landing & Configuration Page
-app.get(['/', '/configure'], (req, res) => {
+app.get(['/', '/configure', '/:config/configure'], (req, res) => {
   const baseUrl = getBaseUrl(req);
   res.type('html').send(renderLandingPage(manifest, `${baseUrl}/manifest.json`));
 });
 
-// Stremio Addon Manifest
-app.get('/manifest.json', (req, res) => {
+// Stremio Addon Manifest (both unconfigured and configured)
+app.get(['/manifest.json', '/:config/manifest.json'], (req, res) => {
   res.set('Cache-Control', 'public, max-age=3600');
   res.json(manifest);
 });
@@ -50,17 +60,20 @@ app.get('/manifest.json', (req, res) => {
 const subtitleRoutes = [
   '/subtitles/:type/:id.json',
   '/subtitles/:type/:id/:extra.json',
+  '/:config/subtitles/:type/:id.json',
+  '/:config/subtitles/:type/:id/:extra.json',
 ];
 
 app.get(subtitleRoutes, async (req, res) => {
-  const { type, id } = req.params;
+  const { type, id, config: rawConfig } = req.params;
   const baseUrl = getBaseUrl(req);
+  const userConfig = parseUserConfig(rawConfig);
 
   try {
     const media = await parseMediaIdentifier(type, id);
-    const subtitles = await aggregateSubtitles(media, baseUrl);
+    const subtitles = await aggregateSubtitles(media, baseUrl, userConfig);
 
-    // Stremio expects: { subtitles: [ { id, url, lang, format } ] }
+    // Stremio expects: { subtitles: [ { id, url, lang, format, title } ] }
     res.set('Cache-Control', subtitles.length > 0 ? 'public, max-age=1800' : 'public, max-age=180');
     return res.json({ subtitles });
   } catch (err) {

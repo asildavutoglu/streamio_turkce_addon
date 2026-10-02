@@ -5,6 +5,9 @@ module.exports = {
   publicUrl: process.env.PUBLIC_URL || null,
   trustProxy: process.env.TRUST_PROXY === 'true' || true,
 
+  // Proxy settings (optional - for bypassing datacenter IP blocks)
+  proxyUrl: process.env.PROXY_URL || null,
+
   // Cache settings
   cache: {
     searchTtlMs: 15 * 60 * 1000,       // 15 minutes for subtitle list searches

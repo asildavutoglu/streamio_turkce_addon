@@ -13,13 +13,14 @@ function renderLandingPage(manifest, manifestUrl) {
   <style>
     :root {
       --bg: #0a0c10;
-      --card-bg: rgba(22, 27, 34, 0.7);
+      --card-bg: rgba(22, 27, 34, 0.75);
       --border: rgba(255, 255, 255, 0.1);
       --primary: #7c3aed;
       --primary-hover: #6d28d9;
       --accent: #06b6d4;
       --text: #f3f4f6;
       --text-muted: #9ca3af;
+      --input-bg: rgba(0, 0, 0, 0.4);
     }
     * {
       box-sizing: border-box;
@@ -47,7 +48,7 @@ function renderLandingPage(manifest, manifestUrl) {
       backdrop-filter: blur(20px);
       border: 1px solid var(--border);
       border-radius: 24px;
-      padding: 40px;
+      padding: 36px;
       box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
       text-align: center;
     }
@@ -60,29 +61,73 @@ function renderLandingPage(manifest, manifestUrl) {
       font-size: 13px;
       font-weight: 600;
       color: #c4b5fd;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
       letter-spacing: 0.5px;
     }
     h1 {
-      font-size: 32px;
+      font-size: 30px;
       font-weight: 800;
       letter-spacing: -0.5px;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
       background: linear-gradient(135deg, #ffffff 0%, #9ca3af 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
     p.desc {
-      font-size: 16px;
+      font-size: 15px;
       color: var(--text-muted);
       line-height: 1.6;
-      margin-bottom: 32px;
+      margin-bottom: 24px;
+    }
+    .config-card {
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      text-align: left;
+      margin-bottom: 24px;
+    }
+    .config-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #e5e7eb;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .form-group {
+      margin-bottom: 14px;
+    }
+    .form-group:last-child {
+      margin-bottom: 0;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    input[type="text"], select {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: white;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input[type="text"]:focus, select:focus {
+      border-color: var(--primary);
     }
     .btn-group {
       display: flex;
       flex-direction: column;
       gap: 12px;
-      margin-bottom: 32px;
+      margin-bottom: 24px;
     }
     @media(min-width: 480px) {
       .btn-group {
@@ -96,7 +141,7 @@ function renderLandingPage(manifest, manifestUrl) {
       justify-content: center;
       gap: 10px;
       padding: 14px 28px;
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 600;
       border-radius: 12px;
       cursor: pointer;
@@ -122,12 +167,23 @@ function renderLandingPage(manifest, manifestUrl) {
       background: rgba(255, 255, 255, 0.1);
       transform: translateY(-2px);
     }
+    .manifest-box {
+      background: rgba(0, 0, 0, 0.35);
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      font-family: monospace;
+      font-size: 12px;
+      color: #a78bfa;
+      word-break: break-all;
+      margin-bottom: 20px;
+    }
     .features {
       display: grid;
       grid-template-columns: 1fr;
-      gap: 16px;
+      gap: 14px;
       text-align: left;
-      margin-top: 32px;
+      margin-top: 24px;
       padding-top: 24px;
       border-top: 1px solid var(--border);
     }
@@ -138,21 +194,21 @@ function renderLandingPage(manifest, manifestUrl) {
     }
     .feature-card {
       background: rgba(255, 255, 255, 0.03);
-      padding: 16px;
+      padding: 14px;
       border-radius: 12px;
       border: 1px solid rgba(255, 255, 255, 0.04);
     }
     .feature-title {
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 700;
       color: #e5e7eb;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
     }
     .feature-desc {
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text-muted);
       line-height: 1.4;
     }
@@ -168,17 +224,6 @@ function renderLandingPage(manifest, manifestUrl) {
       font-weight: 600;
       box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
     }
-    .manifest-box {
-      background: rgba(0, 0, 0, 0.3);
-      padding: 10px 14px;
-      border-radius: 8px;
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      font-family: monospace;
-      font-size: 12px;
-      color: #a78bfa;
-      word-break: break-all;
-      margin-bottom: 20px;
-    }
   </style>
 </head>
 <body>
@@ -187,10 +232,28 @@ function renderLandingPage(manifest, manifestUrl) {
     <h1>${manifest.name}</h1>
     <p class="desc">${manifest.description}</p>
 
-    <div class="manifest-box">${manifestUrl}</div>
+    <!-- Opsiyonel Ayarlar -->
+    <div class="config-card">
+      <div class="config-title">⚙️ Tercihler & Ayarlar (İsteğe Bağlı)</div>
+      
+      <div class="form-group">
+        <label for="priority">Öncelikli Altyazı Sağlayıcı:</label>
+        <select id="priority" onchange="updateLinks()">
+          <option value="turkcealtyazi">TurkceAltyazi.org (En İyi İnsan Çevirileri)</option>
+          <option value="opensubtitles">OpenSubtitles v3 (Geniş Arşiv)</option>
+        </select>
+      </div>
+
+      <div class="form-group" style="margin-top: 12px;">
+        <label for="osApiKey">OpenSubtitles API Key (Opsiyonel - VIP / Kendi Hesabınız):</label>
+        <input type="text" id="osApiKey" placeholder="Örn: your_api_consumer_key..." oninput="updateLinks()" />
+      </div>
+    </div>
+
+    <div class="manifest-box" id="manifestDisplay">${manifestUrl}</div>
 
     <div class="btn-group">
-      <a href="${stremioUrl}" class="btn btn-primary">
+      <a href="${stremioUrl}" id="installBtn" class="btn btn-primary">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
           <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/>
         </svg>
@@ -208,7 +271,7 @@ function renderLandingPage(manifest, manifestUrl) {
     <div class="features">
       <div class="feature-card">
         <div class="feature-title">⛩️ Anime & Kitsu Desteği</div>
-        <div class="feature-desc">Kitsu ID'lerini (kitsu:1234:1) otomatik çözer, animelerde bulunamayan altyazıları getirir.</div>
+        <div class="feature-desc">Kitsu ID'lerini otomatik çözer, animelerde bulunamayan altyazıları eksiksiz getirir.</div>
       </div>
       <div class="feature-card">
         <div class="feature-title">🎬 Çift Kaynaklı Havuz</div>
@@ -228,8 +291,34 @@ function renderLandingPage(manifest, manifestUrl) {
   <div id="toast" class="copy-toast">Manifest URL panoya kopyalandı!</div>
 
   <script>
+    const baseUrl = window.location.origin;
+
+    function getGeneratedManifestUrl() {
+      const priority = document.getElementById('priority').value;
+      const osApiKey = document.getElementById('osApiKey').value.trim();
+
+      const config = {};
+      if (priority !== 'turkcealtyazi') config.priority = priority;
+      if (osApiKey) config.osApiKey = osApiKey;
+
+      if (Object.keys(config).length === 0) {
+        return baseUrl + '/manifest.json';
+      }
+
+      const encoded = btoa(JSON.stringify(config)).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
+      return baseUrl + '/' + encoded + '/manifest.json';
+    }
+
+    function updateLinks() {
+      const manifestUrl = getGeneratedManifestUrl();
+      const stremioUrl = manifestUrl.replace(/^https?:\\/\\//, 'stremio://');
+
+      document.getElementById('manifestDisplay').textContent = manifestUrl;
+      document.getElementById('installBtn').setAttribute('href', stremioUrl);
+    }
+
     function copyManifest() {
-      const url = "${manifestUrl}";
+      const url = getGeneratedManifestUrl();
       navigator.clipboard.writeText(url).then(() => {
         const toast = document.getElementById('toast');
         toast.style.display = 'block';

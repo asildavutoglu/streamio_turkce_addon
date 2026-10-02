@@ -15,8 +15,11 @@ const downloadFlight = new SingleFlight();
 /**
  * Searches and aggregates Turkish subtitles from TurkceAltyazi and OpenSubtitles
  */
-async function aggregateSubtitles(media, baseUrl) {
-  const cacheKey = `search:${media.type}:${media.imdbId || media.kitsuId}:${media.season || 0}:${media.episode || 0}`;
+async function aggregateSubtitles(media, baseUrl, userConfig = {}) {
+  const osKey = userConfig.osApiKey || config.openSubtitles.apiKey;
+  const priority = userConfig.priority || 'turkcealtyazi';
+
+  const cacheKey = `search:${media.type}:${media.imdbId || media.kitsuId}:${media.season || 0}:${media.episode || 0}:${osKey ? 'custom' : 'default'}:${priority}`;
   const cached = searchCache.get(cacheKey);
   if (cached) return cached;
 
@@ -24,7 +27,8 @@ async function aggregateSubtitles(media, baseUrl) {
     const secondCheck = searchCache.get(cacheKey);
     if (secondCheck) return secondCheck;
 
-    const subtitleList = [];
+    const taSubtitles = [];
+    const osSubtitles = [];
 
     // --- 1. TURKCEALTYAZI SEARCH ---
     try {
@@ -74,7 +78,7 @@ async function aggregateSubtitles(media, baseUrl) {
               ? `Türkçe - ${candidate.translator} (${candidate.rip || 'Web-DL'})`
               : `Türkçe (${candidate.rip || 'TurkceAltyazi'})`;
 
-            subtitleList.push({
+            taSubtitles.push({
               id: `ta-${dlInfo.altid}-${media.season || 0}-${media.episode || 0}`,
               url: `${baseUrl}/subtitles/download/${token}.vtt`,
               lang: 'tur',
@@ -98,6 +102,7 @@ async function aggregateSubtitles(media, baseUrl) {
         type: media.type,
         season: media.season,
         episode: media.episode,
+        apiKey: osKey,
       });
 
       for (const osItem of osResults) {
@@ -105,10 +110,11 @@ async function aggregateSubtitles(media, baseUrl) {
           source: 'opensubtitles',
           fileId: osItem.fileId,
           subFormat: osItem.subFormat,
+          apiKey: osKey || undefined,
         };
 
         const token = encodeToken(tokenData);
-        subtitleList.push({
+        osSubtitles.push({
           id: `os-${osItem.fileId}`,
           url: `${baseUrl}/subtitles/download/${token}.vtt`,
           lang: 'tur',
@@ -120,9 +126,14 @@ async function aggregateSubtitles(media, baseUrl) {
       console.error('[Aggregator] OpenSubtitles provider error:', err.message);
     }
 
-    const ttl = subtitleList.length > 0 ? config.cache.searchTtlMs : config.cache.negativeSearchTtlMs;
-    searchCache.set(cacheKey, subtitleList, ttl);
-    return subtitleList;
+    // Merge based on user preference
+    const finalSubtitles = priority === 'opensubtitles'
+      ? [...osSubtitles, ...taSubtitles]
+      : [...taSubtitles, ...osSubtitles];
+
+    const ttl = finalSubtitles.length > 0 ? config.cache.searchTtlMs : config.cache.negativeSearchTtlMs;
+    searchCache.set(cacheKey, finalSubtitles, ttl);
+    return finalSubtitles;
   });
 }
 
@@ -159,7 +170,7 @@ async function resolveSubtitleVtt(tokenStr) {
     }
 
     if (token.source === 'opensubtitles') {
-      const vttContent = await openSubtitles.downloadOpenSubtitle(token.fileId);
+      const vttContent = await openSubtitles.downloadOpenSubtitle(token.fileId, token.apiKey);
       vttCache.set(tokenStr, vttContent, config.cache.subtitleTtlMs);
       return vttContent;
     }

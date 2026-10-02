@@ -7,7 +7,7 @@ const USER_AGENT =
 
 const BASE_URL = config.turkceAltyazi.baseUrl;
 
-const client = axios.create({
+const clientConfig = {
   baseURL: BASE_URL,
   timeout: config.turkceAltyazi.timeoutMs,
   headers: {
@@ -15,7 +15,23 @@ const client = axios.create({
     Accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
     'Accept-Language': 'tr,en-US;q=0.9,en;q=0.8',
   },
-});
+};
+
+if (config.proxyUrl) {
+  try {
+    const url = new URL(config.proxyUrl);
+    clientConfig.proxy = {
+      protocol: url.protocol.replace(':', ''),
+      host: url.hostname,
+      port: Number(url.port) || (url.protocol === 'https:' ? 443 : 80),
+      auth: url.username ? { username: decodeURIComponent(url.username), password: decodeURIComponent(url.password) } : undefined,
+    };
+  } catch (err) {
+    console.warn('[TurkceAltyazi] Invalid PROXY_URL, ignoring proxy:', err.message);
+  }
+}
+
+const client = axios.create(clientConfig);
 
 function toAbsoluteUrl(relUrl) {
   if (!relUrl) return null;
