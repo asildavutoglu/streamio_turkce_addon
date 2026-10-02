@@ -151,6 +151,16 @@ app.get(['/health', '/ping'], (req, res) => {
   });
 });
 
+// Debug endpoint to diagnose upstream connectivity
+app.get('/debug/:term', async (req, res) => {
+  try {
+    const pages = await require('./lib/turkcealtyazi').findTitlePages(req.params.term);
+    res.json({ term: req.params.term, count: pages.length, pages });
+  } catch (e) {
+    res.json({ error: e.message, status: e.response?.status, data: String(e.response?.data).substring(0, 300) });
+  }
+});
+
 // 404 fallback
 app.use((req, res) => {
   res.redirect('/');
