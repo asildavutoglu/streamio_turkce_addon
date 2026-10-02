@@ -170,6 +170,22 @@ async function resolveSubtitleVtt(tokenStr) {
     const token = decodeToken(tokenStr);
 
     if (token.source === 'anisub') {
+      if (!token.zipUrl || typeof token.zipUrl !== 'string') {
+        throw new Error('Invalid download URL parameter');
+      }
+
+      // SSRF Defense: strictly whitelist trusted subtitle archive CDNs
+      try {
+        const parsedUrl = new URL(token.zipUrl);
+        const allowedHosts = ['cdn.anisub.co', 'anisub.co', 'media.githubusercontent.com', 'raw.githubusercontent.com'];
+        const isAllowed = allowedHosts.some((h) => parsedUrl.hostname === h || parsedUrl.hostname.endsWith(`.${h}`));
+        if (!isAllowed || parsedUrl.protocol !== 'https:') {
+          throw new Error('Disallowed subtitle archive download host');
+        }
+      } catch (err) {
+        throw new Error('Disallowed subtitle archive download host');
+      }
+
       const archiveKey = `archive:${token.zipUrl}`;
       let archiveBuffer = archiveCache.get(archiveKey);
 
