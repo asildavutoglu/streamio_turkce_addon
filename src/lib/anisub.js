@@ -31,15 +31,31 @@ async function searchAnisub(title) {
     });
 
     const cleanLower = clean.toLowerCase();
-    const results = (res.data?.anime || []).map((item) => ({
+    const queryWords = cleanLower.split(/\s+/).filter((w) => w.length > 2);
+
+    const rawList = (res.data?.anime || []).map((item) => ({
       name: item.name,
       slug: item.url,
       details: item.details,
-    })).sort((a, b) => {
-      const aMatch = a.name.toLowerCase().includes(cleanLower);
-      const bMatch = b.name.toLowerCase().includes(cleanLower);
-      if (aMatch && !bMatch) return -1;
-      if (!aMatch && bMatch) return 1;
+    }));
+
+    // Filter out unrelated results that share no words with query
+    const filtered = rawList.filter((item) => {
+      const itemLower = item.name.toLowerCase();
+      if (itemLower.includes(cleanLower)) return true;
+      return queryWords.some((w) => itemLower.includes(w));
+    });
+
+    const results = filtered.sort((a, b) => {
+      const aExact = a.name.toLowerCase() === cleanLower;
+      const bExact = b.name.toLowerCase() === cleanLower;
+      if (aExact && !bExact) return -1;
+      if (!aExact && bExact) return 1;
+
+      const aIncludes = a.name.toLowerCase().includes(cleanLower);
+      const bIncludes = b.name.toLowerCase().includes(cleanLower);
+      if (aIncludes && !bIncludes) return -1;
+      if (!aIncludes && bIncludes) return 1;
       return 0;
     });
 
