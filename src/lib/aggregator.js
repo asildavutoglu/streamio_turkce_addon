@@ -1,9 +1,11 @@
 const config = require('../config');
+const axios = require('axios');
 const { TtlCache, SingleFlight } = require('./cache');
 const { encodeToken, decodeToken } = require('./token');
 const { extractSubtitleFromArchive } = require('./archive');
 const turkceAltyazi = require('./turkcealtyazi');
 const openSubtitles = require('./opensubtitles');
+const anisub = require('./anisub');
 
 const searchCache = new TtlCache({ maxEntries: 2000 });
 const archiveCache = new TtlCache({ maxEntries: 300 });
@@ -13,7 +15,7 @@ const searchFlight = new SingleFlight();
 const downloadFlight = new SingleFlight();
 
 /**
- * Searches and aggregates Turkish subtitles from TurkceAltyazi and OpenSubtitles
+ * Searches and aggregates Turkish subtitles from AniSub, TurkceAltyazi, and OpenSubtitles
  */
 async function aggregateSubtitles(media, baseUrl, userConfig = {}) {
   const osKey = userConfig.osApiKey || config.openSubtitles.apiKey;
@@ -27,8 +29,23 @@ async function aggregateSubtitles(media, baseUrl, userConfig = {}) {
     const secondCheck = searchCache.get(cacheKey);
     if (secondCheck) return secondCheck;
 
+    const aniSubtitles = [];
     const taSubtitles = [];
     const osSubtitles = [];
+
+    // --- 0. ANISUB SEARCH (For Anime / Animation / Kitsu) ---
+    if (media.isAnime || media.isKitsu || media.type === 'anime' || (media.searchTitles && media.searchTitles.length > 0)) {
+      try {
+        const aniResults = await anisub.findAnimeSubtitles({
+          titles: media.searchTitles,
+          season: media.season || 1,
+          episode: media.episode || 1,
+        }, baseUrl);
+        aniSubtitles.push(...aniResults);
+      } catch (err) {
+        console.error('[Aggregator] AniSub provider error:', err.message);
+      }
+    }
 
     // --- 1. TURKCEALTYAZI SEARCH ---
     try {
@@ -126,10 +143,12 @@ async function aggregateSubtitles(media, baseUrl, userConfig = {}) {
       console.error('[Aggregator] OpenSubtitles provider error:', err.message);
     }
 
-    // Merge based on user preference
-    const finalSubtitles = priority === 'opensubtitles'
+    // Merge based on user preference and relevance
+    const generalSubtitles = priority === 'opensubtitles'
       ? [...osSubtitles, ...taSubtitles]
       : [...taSubtitles, ...osSubtitles];
+
+    const finalSubtitles = [...aniSubtitles, ...generalSubtitles];
 
     const ttl = finalSubtitles.length > 0 ? config.cache.searchTtlMs : config.cache.negativeSearchTtlMs;
     searchCache.set(cacheKey, finalSubtitles, ttl);
@@ -149,6 +168,30 @@ async function resolveSubtitleVtt(tokenStr) {
     if (secondCheck) return secondCheck;
 
     const token = decodeToken(tokenStr);
+
+    if (token.source === 'anisub') {
+      const archiveKey = `archive:${token.zipUrl}`;
+      let archiveBuffer = archiveCache.get(archiveKey);
+
+      if (!archiveBuffer) {
+        const res = await axios.get(token.zipUrl, {
+          responseType: 'arraybuffer',
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+          timeout: 15000,
+        });
+        archiveBuffer = Buffer.from(res.data);
+        archiveCache.set(archiveKey, archiveBuffer, config.cache.archiveTtlMs);
+      }
+
+      const extracted = await extractSubtitleFromArchive(archiveBuffer, {
+        season: token.season,
+        episode: token.episode,
+        requireEpisodeMatch: false,
+      });
+
+      vttCache.set(tokenStr, extracted.body, config.cache.subtitleTtlMs);
+      return extracted.body;
+    }
 
     if (token.source === 'turkcealtyazi') {
       const archiveKey = `archive:${token.altid}`;

@@ -224,18 +224,35 @@ async function extractSubtitleFromArchive(archiveBuffer, { season = null, episod
     throw new Error('Subtitle archive contains no supported subtitle files (.srt, .vtt, .ass)');
   }
 
-  const ranked = entries
+  let ranked = entries
     .map((entry) => ({
       entry,
       episodeMatch: matchesEpisode(entry.path, season, episode),
       priority: EXTENSION_PRIORITY.get(path.extname(entry.path).toLowerCase()) ?? 99,
     }))
-    .filter((candidate) => !requireEpisodeMatch || candidate.episodeMatch)
-    .sort((a, b) => {
-      if (a.episodeMatch !== b.episodeMatch) return Number(b.episodeMatch) - Number(a.episodeMatch);
-      if (a.priority !== b.priority) return a.priority - b.priority;
-      return a.entry.path.localeCompare(b.entry.path);
-    });
+    .filter((candidate) => !requireEpisodeMatch || candidate.episodeMatch);
+
+  // If no direct regex match was found in filenames, fallback to sequential episode index in archive
+  const hasMatch = ranked.some((candidate) => candidate.episodeMatch);
+  if (!hasMatch && episode && episode >= 1) {
+    const sortedEntries = [...entries].sort((a, b) =>
+      a.path.localeCompare(b.path, undefined, { numeric: true, sensitivity: 'base' })
+    );
+    if (episode <= sortedEntries.length) {
+      const indexMatchedEntry = sortedEntries[episode - 1];
+      ranked = [{
+        entry: indexMatchedEntry,
+        episodeMatch: true,
+        priority: 0,
+      }];
+    }
+  }
+
+  ranked.sort((a, b) => {
+    if (a.episodeMatch !== b.episodeMatch) return Number(b.episodeMatch) - Number(a.episodeMatch);
+    if (a.priority !== b.priority) return a.priority - b.priority;
+    return a.entry.path.localeCompare(b.entry.path, undefined, { numeric: true });
+  });
 
   if (ranked.length === 0) {
     throw new Error(`Requested S${season || 1}E${episode} was not found in the subtitle archive`);

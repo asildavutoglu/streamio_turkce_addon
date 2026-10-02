@@ -106,6 +106,16 @@ Dialogue: 0,0:01:20.50,0:01:23.80,Default,,0,0,0,,{\\pos(192,200)}Shingeki no Ky
   assert(onePaceSubs.length >= 2, 'En az WebVTT ve ASS altyazı bulunmalı');
   console.log(`   ✅ One Pace Romance Dawn 1 altyazıları hazır (${onePaceSubs.length} adet)`);
 
+  // Test 9: AniSub Anime Entegrasyonu (Jujutsu Kaisen via Cinemeta & Kitsu)
+  console.log('9️⃣ AniSub Anime Entegrasyonu:');
+  const { aggregateSubtitles } = require('../src/lib/aggregator');
+  const mediaJJK = await parseMediaIdentifier('series', 'tt12343534:1:1');
+  assert(mediaJJK.isAnime, 'Jujutsu Kaisen anime olarak tanınmalı');
+  assert.strictEqual(mediaJJK.title, 'Jujutsu Kaisen', 'Başlık Jujutsu Kaisen olmalı');
+  const subsJJK = await aggregateSubtitles(mediaJJK, 'http://localhost:7000');
+  assert(subsJJK.length > 0, 'Jujutsu Kaisen altyazısı bulunmalı');
+  console.log(`   ✅ Jujutsu Kaisen S1E1 altyazısı AniSub üzerinden başarıyla bulundu: "${subsJJK[0].title}"`);
+
   console.log('\n🎉 TÜM TESTLER BAŞARIYLA TAMAMLANDI!\n');
 }
 

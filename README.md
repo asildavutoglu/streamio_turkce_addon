@@ -1,56 +1,52 @@
 # Türkçe Altyazı+ (Stremio Addon) 🎬 ⛩️
 
-Stremio için **Film**, **Dizi** ve özellikle **Animeler** için geliştirilmiş çok kaynaklı Türkçe altyazı eklentisi.
+[![Stremio'ya Yükle](https://img.shields.io/badge/Stremio'ya-Y%C3%BCkle-7B5BF5?style=for-the-badge&logo=stremio&logoColor=white)](stremio://streamio-turkce-addon.vercel.app/manifest.json)
+[![Yapılandır](https://img.shields.io/badge/Web_Yap%C4%B1land%C4%B1rma-A%C3%A7-0070F3?style=for-the-badge&logo=vercel&logoColor=white)](https://streamio-turkce-addon.vercel.app/)
 
-Bu eklenti, Stremio'daki en büyük eksikliklerden biri olan **Anime Kitsu kimliklerini (`kitsu:1234:1`)** otomatik olarak çözümler ve hem **TurkceAltyazi.org** hem de **OpenSubtitles.com** üzerinden yüksek kaliteli Türkçe altyazıları getirir.
+Stremio için **Film**, **Dizi**, **Animeler** ve **One Pace** için geliştirilmiş çok kaynaklı Türkçe altyazı eklentisi.
+
+Bu eklenti, Stremio'daki en büyük eksikliklerden biri olan **Anime Kitsu kimliklerini (`kitsu:1234:1`)** ve Cinemeta Anime kataloglarını otomatik olarak çözümler; **AniSub.co**, **One Pace Türkçe Arşivi**, **TurkceAltyazi.org** ve **OpenSubtitles.com** üzerinden yüksek kaliteli Türkçe altyazıları sunar.
 
 ---
 
 ## 🌟 Özellikler
 
-- 🏴‍☠️ **One Pace Türkçe Altyazı Desteği**: `asildavutoglu/one-pace-tr-addon` deposundaki 442 bölümün (Romance Dawn'dan Wano ve Egghead'e kadar 37 Arc) tamamını içerir. Hem WebVTT hem de Styled ASS formatında anında sunar.
-- ⛩️ **Tam Anime & Kitsu Desteği**: Stremio'da Anime Kitsu eklentisi kullanıldığında gelen `kitsu:id:episode` isteklerini ARM (Anime Relations Mapping) ve Kitsu API ile anında çözerek Türkçe altyazıları bulur.
-- 🎬 **Çift Kaynaklı Havuz**: TurkceAltyazi.org (insan çevirmenler) ve OpenSubtitles v3 kütüphanelerini aynı anda tarar.
+- ⛩️ **Eksiksiz Anime Entegrasyonu (AniSub & Kitsu)**: *Jujutsu Kaisen*, *Attack on Titan*, *Demon Slayer* gibi tüm popüler animeleri hem Cinemeta hem de Kitsu kataloğundan otomatik tanır, AniSub CDN üzerinden Türkçe altyazıları anında getirir.
+- 🏴‍☠️ **One Pace Türkçe Altyazı Desteği (442 Bölüm)**: `asildavutoglu/one-pace-tr-addon` deposundaki 442 bölümün (Romance Dawn'dan Wano ve Egghead'e kadar 37 Arc) tamamını içerir. Hem WebVTT hem de Styled ASS formatında anında sunar.
+- 🎬 **Çok Kaynaklı Havuz**: AniSub, TurkceAltyazi.org ve OpenSubtitles kütüphanelerini aynı anda tarar.
 - ✨ **Akıllı Türkçe Karakter Onarımı**: `Windows-1254` ve `ISO-8859-9` ile kodlanmış dosyalardaki bozuk Türkçe karakterleri (`ş, ğ, ı, ç, ö, ü`) otomatik olarak tespit eder ve temiz `UTF-8 WebVTT` formatına çevirir.
 - 🎭 **ASS/SSA Anime Format Dönüşümü**: Animelerde yaygın olan `.ass` ve `.ssa` formatındaki altyazıları stil etiketlerini temizleyerek Stremio'nun oynatabileceği standart `WebVTT`'ye dönüştürür.
 - ⚡ **Yüksek Hız & Akıllı Önbellek**: Bellek içi (In-Memory) TTL önbellek ve SingleFlight ile sunucu ve sağlayıcı yükünü minimize eder, anında yanıt verir.
-- 💸 **%100 Sıfır Maliyet**: Vercel, Koyeb veya Dokku/Beamup ile 1 kuruş harcamadan ve kredi kartı vermeden 7/24 çalıştırılabilir.
+- ☁️ **7/24 Kesintisiz Bulut Altyapısı**: Vercel üzerinde 7/24 barındırılır; harici sunucu veya bilgisayar açık tutmaya gerek kalmadan doğrudan kullanılabilir.
 
 ---
 
-## 🚀 0 Maliyetle Yayına Alma (Hosting Seçenekleri)
+## 🚀 Hızlı Kurulum (Tek Tıkla)
 
-Stremio istemcileri (Android TV, PC, Telefon) sunucudan sadece birkaç KB boyutunda JSON ve VTT metni çektiği için devasa sunuculara gerek yoktur.
+### Yöntem 1: Doğrudan Kurulum (PC & Mobil)
+Aşağıdaki bağlantıya tıklayarak Stremio uygulamanızda tek tıkla kurulum yapabilirsiniz:
 
-### Seçenek 1: Vercel (En Hızlı & En Kolay - Kredi Kartsız, %100 Ücretsiz)
-1. Bu projeyi kendi GitHub hesabınıza bir depo (repository) olarak yükleyin.
-2. [vercel.com](https://vercel.com) adresine gidin ve **"Continue with GitHub"** diyerek ücretsiz giriş yapın (Kredi kartı gerekmez).
-3. **"Add New Project"** butonuna basıp GitHub'daki bu depoyu seçin ve **"Deploy"** butonuna tıklayın.
-4. Proje içindeki `vercel.json` sayesinde Vercel eklentinizi otomatik olarak serverless olarak derleyip yayına alacaktır.
-5. Vercel size anında `https://proje-adiniz.vercel.app` şeklinde kalıcı bir HTTPS adresi verir.
-6. Stremio'ya eklenecek Manifest Linkiniz:
+👉 **[Stremio'ya Ekle (Tek Tıkla Kur)](stremio://streamio-turkce-addon.vercel.app/manifest.json)**
+
+*(İsteğe bağlı olarak ayarları özelleştirmek için [Yapılandırma Sayfası](https://streamio-turkce-addon.vercel.app/) üzerinden de kurulum yapabilirsiniz.)*
+
+---
+
+### Yöntem 2: Manuel Kurulum (Android TV, Google TV, FireStick & Web)
+1. Aşağıdaki manifest bağlantısını kopyalayın:
    ```text
-   https://proje-adiniz.vercel.app/manifest.json
+   https://streamio-turkce-addon.vercel.app/manifest.json
    ```
+2. Stremio'yu açın -> **Eklentiler (Addons)** sekmesine gidin.
+3. Arama çubuğuna linki yapıştırın ve **Yükle (Install)** butonuna tıklayın.
 
-### Seçenek 2: Koyeb (Always-On Container - Kredi Kartsız, %100 Ücretsiz)
-1. [koyeb.com](https://www.koyeb.com) adresinde ücretsiz bir hesap açın.
-2. **"Create Service"** -> **"GitHub"** seçin ve deponuzu bağlayın.
-3. Koyeb Dockerfile'ı algılayıp servisi 7/24 ücretsiz olarak çalıştıracaktır.
-4. Size `https://<app-adi>.koyeb.app/manifest.json` bağlantısını verecektir.
+> [!NOTE]  
+> Android TV, Google TV, FireStick, Windows, macOS, Linux ve iOS (Stremio Web) dahil tüm cihazlarda anında çalışır.
 
-### Seçenek 3: Stremio Beamup (Resmi Ücretsiz Dokku Hosting)
-Stremio topluluğunun eklenti geliştiricilerine sunduğu ücretsiz platform:
-```bash
-npm install -g beamup
-beamup login
-beamup init
-beamup push
-```
-Size anında `https://<addon-adi>.baby-beamup.club/manifest.json` bağlantısını verecektir.
+---
 
-### Seçenek 4: Yerel (Local) Çalıştırma
-Kendi bilgisayarınızda çalıştırmak için:
+## 🛠️ Geliştiriciler İçin (Yerel Çalıştırma)
+Projeye katkı sağlamak veya kendi makinenizde çalıştırmak isterseniz:
 ```bash
 # Bağımlılıkları yükleyin
 npm install
@@ -61,22 +57,7 @@ npm test
 # Eklentiyi başlatın
 npm start
 ```
-Tarayıcınızda `http://127.0.0.1:7000` adresini açarak tek tıkla Stremio'ya ekleyebilirsiniz.
-
----
-
-## 📺 Stremio'ya Nasıl Kurulur?
-
-1. Eklenti web sayfasına gidin (örn: `https://proje-adiniz.vercel.app` veya `http://127.0.0.1:7000`).
-2. İsteğe bağlı olarak kendi OpenSubtitles anahtarınızı veya sağlayıcı önceliğinizi seçebilirsiniz.
-3. **"Stremio'ya Yükle"** butonuna basın (Stremio uygulamanız otomatik açılır).
-4. Veya bağlantıyı kopyalayın:
-   - Stremio'yu açın -> **Eklentiler (Addons)** sekmesine gidin.
-   - Arama çubuğuna manifest linkini yapıştırın:
-     `https://proje-adiniz.vercel.app/manifest.json`
-   - **Yükle (Install)** butonuna tıklayın.
-
-Android TV, Google TV, FireStick, PC, Mac ve iOS (Web) dahil tüm cihazlarda anında çalışır!
+Tarayıcınızda `http://127.0.0.1:7000` adresini açarak yerel arayüze erişebilirsiniz.
 
 ---
 
