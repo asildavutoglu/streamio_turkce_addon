@@ -1,0 +1,32 @@
+{
+  "name": "stremio-turkce-altyazi-plus",
+  "version": "1.0.0",
+  "description": "Stremio için Film, Dizi ve Animeler (Kitsu/IMDb) odaklı çok kaynaklı Türkçe altyazı eklentisi",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node test/test.js"
+  },
+  "keywords": [
+    "stremio",
+    "stremio-addon",
+    "subtitles",
+    "turkish",
+    "turkce-altyazi",
+    "anime",
+    "kitsu",
+    "opensubtitles"
+  ],
+  "author": "Antigravity",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.7.9",
+    "cheerio": "^1.0.0",
+    "compression": "^1.7.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "iconv-lite": "^0.6.3",
+    "unzipper": "^0.12.3"
+  }
+}
