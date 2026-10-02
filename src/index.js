@@ -6,6 +6,7 @@ const manifest = require('./manifest');
 const renderLandingPage = require('./landingTemplate');
 const { parseMediaIdentifier } = require('./lib/animeResolver');
 const { aggregateSubtitles, resolveSubtitleVtt } = require('./lib/aggregator');
+const { getOnePaceSubtitles, getOnePaceVtt } = require('./lib/onepace');
 
 const app = express();
 app.disable('x-powered-by');
@@ -69,6 +70,15 @@ app.get(subtitleRoutes, async (req, res) => {
   const baseUrl = getBaseUrl(req);
   const userConfig = parseUserConfig(rawConfig);
 
+  // 1. Check if this is a One Pace episode request
+  const videoID = (req.query && req.query.videoID) || id;
+  const onePaceSubs = getOnePaceSubtitles(videoID, baseUrl);
+  if (onePaceSubs.length > 0) {
+    res.set('Cache-Control', 'public, max-age=86400');
+    return res.json({ subtitles: onePaceSubs });
+  }
+
+  // 2. Regular Movie, Series, or Anime request
   try {
     const media = await parseMediaIdentifier(type, id);
     const subtitles = await aggregateSubtitles(media, baseUrl, userConfig);
@@ -79,6 +89,31 @@ app.get(subtitleRoutes, async (req, res) => {
   } catch (err) {
     console.error(`[Router] Failed to handle subtitles for ${type}/${id}:`, err.message);
     return res.status(200).json({ subtitles: [] });
+  }
+});
+
+// One Pace Subtitle Delivery Endpoint (VTT Stream)
+app.get('/subtitles/onepace/:videoId.vtt', async (req, res) => {
+  const { videoId } = req.params;
+
+  try {
+    const vttBody = await getOnePaceVtt(videoId);
+    const etag = `"${crypto.createHash('sha256').update(vttBody).digest('base64url')}"`;
+
+    res.set({
+      'Content-Type': 'text/vtt; charset=utf-8',
+      'Cache-Control': 'public, max-age=86400, stale-while-revalidate=43200',
+      'ETag': etag,
+    });
+
+    if (req.headers['if-none-match'] === etag) {
+      return res.status(304).end();
+    }
+
+    return res.send(vttBody);
+  } catch (err) {
+    console.error('[Router] One Pace delivery error:', err.message);
+    return res.status(404).type('text').send('One Pace altyazi bulunamadi.');
   }
 });
 

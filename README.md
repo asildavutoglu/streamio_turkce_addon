@@ -8,6 +8,7 @@ Bu eklenti, Stremio'daki en büyük eksikliklerden biri olan **Anime Kitsu kimli
 
 ## 🌟 Özellikler
 
+- 🏴‍☠️ **One Pace Türkçe Altyazı Desteği**: `asildavutoglu/one-pace-tr-addon` deposundaki 442 bölümün (Romance Dawn'dan Wano ve Egghead'e kadar 37 Arc) tamamını içerir. Hem WebVTT hem de Styled ASS formatında anında sunar.
 - ⛩️ **Tam Anime & Kitsu Desteği**: Stremio'da Anime Kitsu eklentisi kullanıldığında gelen `kitsu:id:episode` isteklerini ARM (Anime Relations Mapping) ve Kitsu API ile anında çözerek Türkçe altyazıları bulur.
 - 🎬 **Çift Kaynaklı Havuz**: TurkceAltyazi.org (insan çevirmenler) ve OpenSubtitles v3 kütüphanelerini aynı anda tarar.
 - ✨ **Akıllı Türkçe Karakter Onarımı**: `Windows-1254` ve `ISO-8859-9` ile kodlanmış dosyalardaki bozuk Türkçe karakterleri (`ş, ğ, ı, ç, ö, ü`) otomatik olarak tespit eder ve temiz `UTF-8 WebVTT` formatına çevirir.
@@ -83,6 +84,8 @@ Android TV, Google TV, FireStick, PC, Mac ve iOS (Web) dahil tüm cihazlarda an�
 
 | İçerik | Tür | ID Formatı | Test Sonucu |
 | :--- | :--- | :--- | :--- |
+| **One Pace (Romance Dawn 1)** | One Pace | `RO_1` | ✅ WebVTT, Styled ASS & SRT (3 format) |
+| **One Pace (Wano 1)** | One Pace | `WA_1` | ✅ WebVTT, Styled ASS & SRT (3 format) |
 | **Attack on Titan (S01E01)** | Anime | `kitsu:7442:1` | ✅ 10 Türkçe altyazı bulundu & VTT'ye çevrildi |
 | **Death Note (S01E01)** | Anime | `kitsu:1376:1` | ✅ 8 Türkçe altyazı bulundu |
 | **Inception** | Film | `tt1375666` | ✅ 12 Türkçe altyazı bulundu |

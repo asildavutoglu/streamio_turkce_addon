@@ -97,6 +97,15 @@ Dialogue: 0,0:01:20.50,0:01:23.80,Default,,0,0,0,,{\\pos(192,200)}Shingeki no Ky
     console.warn('   ⚠️ TurkceAltyazi arama atlandı:', err.message);
   }
 
+  // Test 8: One Pace Altyazı Entegrasyonu
+  console.log('8️⃣ One Pace Altyazı Entegrasyonu:');
+  const { normalizeOnePaceId, getOnePaceSubtitles } = require('../src/lib/onepace');
+  const normalizedId = normalizeOnePaceId('RO_1');
+  assert.strictEqual(normalizedId, 'RO_1', 'RO_1 tanınmalı');
+  const onePaceSubs = getOnePaceSubtitles('RO_1', 'http://localhost:7000');
+  assert(onePaceSubs.length >= 2, 'En az WebVTT ve ASS altyazı bulunmalı');
+  console.log(`   ✅ One Pace Romance Dawn 1 altyazıları hazır (${onePaceSubs.length} adet)`);
+
   console.log('\n🎉 TÜM TESTLER BAŞARIYLA TAMAMLANDI!\n');
 }
 
