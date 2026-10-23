@@ -75,7 +75,7 @@ function getOnePaceSubtitles(rawId, baseUrl) {
       url: `${ONE_PACE_CDN_BASE}/${entry.ass}`,
       lang: 'tur',
       format: 'ass',
-      title: 'Türkçe (One Pace - Styled ASS)',
+      title: 'Türkçe (One Pace - Styled ASS - VLC/MPV)',
     });
   }
 

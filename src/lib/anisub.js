@@ -183,13 +183,53 @@ async function findAnimeSubtitles({ titles = [], season = 1, episode = 1 }, base
         };
 
         const token = encodeToken(tokenData);
+        const isBd = /\b(bd|bluray)\b/i.test(sub.name || '') || /\b(bd|bluray)\b/i.test(sub.url || '');
+        const epDesc = sub.episodes ? ` (${sub.episodes.toLowerCase().includes('bölüm') ? sub.episodes : 'Bölüm ' + sub.episodes})` : '';
+        const baseTitle = `Türkçe [AniSub] ${sub.name || anime.name}${epDesc}${isBd ? ' (BD)' : ''}`;
+
+        // 1. WebVTT (Universal support across Web, Mobile, Android TV, Smart TV)
         allSubtitles.push({
-          id: `anisub-${encodeURIComponent(sub.name || anime.slug)}-${episode || 1}`,
+          id: `anisub-vtt-${encodeURIComponent(sub.name || anime.slug)}-${episode || 1}`,
           url: `${baseUrl}/subtitles/download/${token}.vtt`,
           lang: 'tur',
           format: 'vtt',
-          title: `Türkçe [AniSub] ${anime.name} (${sub.episodes ? 'Bölüm ' + sub.episodes : 'Paket'})`,
+          title: `${baseTitle} [WebVTT]`,
         });
+
+        // 2. Styled ASS (For VLC, MPV & Desktop Stremio with full typography, fonts, positioning & karaoke)
+        allSubtitles.push({
+          id: `anisub-ass-${encodeURIComponent(sub.name || anime.slug)}-${episode || 1}`,
+          url: `${baseUrl}/subtitles/download/${token}.ass`,
+          lang: 'tur',
+          format: 'ass',
+          title: `${baseTitle} [Styled ASS - VLC/MPV]`,
+        });
+
+        // 3. If BD package, also provide WEB-DL synced version (+1.25s) for users streaming Web rips
+        if (isBd) {
+          const webTokenData = {
+            ...tokenData,
+            offsetMs: 1250,
+          };
+          const webToken = encodeToken(webTokenData);
+          const webTitle = `Türkçe [AniSub] ${sub.name || anime.name}${epDesc} (WEB-DL / +1.2s)`;
+
+          allSubtitles.push({
+            id: `anisub-vtt-${encodeURIComponent(sub.name || anime.slug)}-${episode || 1}-web`,
+            url: `${baseUrl}/subtitles/download/${webToken}.vtt`,
+            lang: 'tur',
+            format: 'vtt',
+            title: `${webTitle} [WebVTT]`,
+          });
+
+          allSubtitles.push({
+            id: `anisub-ass-${encodeURIComponent(sub.name || anime.slug)}-${episode || 1}-web`,
+            url: `${baseUrl}/subtitles/download/${webToken}.ass`,
+            lang: 'tur',
+            format: 'ass',
+            title: `${webTitle} [Styled ASS - VLC/MPV]`,
+          });
+        }
       }
 
       if (allSubtitles.length > 0) break;
@@ -202,9 +242,9 @@ async function findAnimeSubtitles({ titles = [], season = 1, episode = 1 }, base
 }
 
 /**
- * Downloads zip from AniSub CDN and extracts the matching episode
+ * Downloads zip from AniSub CDN and extracts the matching episode in requested format
  */
-async function resolveAnisubVtt(token) {
+async function resolveAnisubSubtitle(token, targetFormat = 'vtt') {
   const { extractSubtitleFromArchive } = require('./archive');
   const res = await axios.get(token.zipUrl, {
     responseType: 'arraybuffer',
@@ -217,14 +257,20 @@ async function resolveAnisubVtt(token) {
     season: token.season,
     episode: token.episode,
     requireEpisodeMatch: false,
+    targetFormat,
   });
 
   return extracted.body;
+}
+
+async function resolveAnisubVtt(token) {
+  return resolveAnisubSubtitle(token, 'vtt');
 }
 
 module.exports = {
   searchAnisub,
   getAnimeSubtitles,
   findAnimeSubtitles,
+  resolveAnisubSubtitle,
   resolveAnisubVtt,
 };

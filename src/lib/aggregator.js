@@ -2,14 +2,14 @@ const config = require('../config');
 const axios = require('axios');
 const { TtlCache, SingleFlight } = require('./cache');
 const { encodeToken, decodeToken } = require('./token');
-const { extractSubtitleFromArchive } = require('./archive');
+const { extractSubtitleFromArchive, vttToAss, vttToSrt, shiftSubtitleTimestamps } = require('./archive');
 const turkceAltyazi = require('./turkcealtyazi');
 const openSubtitles = require('./opensubtitles');
 const anisub = require('./anisub');
 
 const searchCache = new TtlCache({ maxEntries: 2000 });
 const archiveCache = new TtlCache({ maxEntries: 300 });
-const vttCache = new TtlCache({ maxEntries: 2000 });
+const subtitleCache = new TtlCache({ maxEntries: 3000 });
 
 const searchFlight = new SingleFlight();
 const downloadFlight = new SingleFlight();
@@ -65,46 +65,72 @@ async function aggregateSubtitles(media, baseUrl, userConfig = {}) {
       }
 
       if (titlePages.length > 0) {
-        // Use primary title page
-        const primaryPage = titlePages[0];
-        const candidates = await turkceAltyazi.listCandidates(primaryPage.pageUrl, {
-          type: media.type,
-          season: media.season,
-          episode: media.episode,
-        });
+        for (const primaryPage of titlePages.slice(0, 3)) {
+          const candidates = await turkceAltyazi.listCandidates(primaryPage.pageUrl, {
+            type: media.type,
+            season: media.season,
+            episode: media.episode,
+          });
 
-        // Limit detail lookups to avoid rate limiting
-        const topCandidates = candidates.slice(0, 15);
+          if (!candidates || candidates.length === 0) continue;
 
-        for (const candidate of topCandidates) {
-          try {
-            const dlInfo = await turkceAltyazi.getDownloadInfo(candidate.subPageUrl);
-            const tokenData = {
-              source: 'turkcealtyazi',
-              idid: dlInfo.idid,
-              altid: dlInfo.altid,
-              sidid: dlInfo.sidid,
-              referer: dlInfo.referer,
-              season: media.season,
-              episode: media.episode,
-              isPackage: candidate.isPackage,
-            };
+          // Limit detail lookups to avoid rate limiting
+          const topCandidates = candidates.slice(0, 15);
 
-            const token = encodeToken(tokenData);
-            const displayTitle = candidate.translator
-              ? `Türkçe - ${candidate.translator} (${candidate.rip || 'Web-DL'})`
-              : `Türkçe (${candidate.rip || 'TurkceAltyazi'})`;
+          for (const candidate of topCandidates) {
+            try {
+              const dlInfo = await turkceAltyazi.getDownloadInfo(candidate.subPageUrl);
+              const tokenData = {
+                source: 'turkcealtyazi',
+                idid: dlInfo.idid,
+                altid: dlInfo.altid,
+                sidid: dlInfo.sidid,
+                referer: dlInfo.referer,
+                season: media.season,
+                episode: media.episode,
+                isPackage: candidate.isPackage,
+              };
 
-            taSubtitles.push({
-              id: `ta-${dlInfo.altid}-${media.season || 0}-${media.episode || 0}`,
-              url: `${baseUrl}/subtitles/download/${token}.vtt`,
-              lang: 'tur',
-              format: 'vtt',
-              title: displayTitle,
-            });
-          } catch (candErr) {
-            // Ignore individual failed candidate forms
+              const token = encodeToken(tokenData);
+              const isAnime = Boolean(media.isAnime || media.isKitsu || media.type === 'anime');
+              const displayTitle = candidate.translator
+                ? `Türkçe - ${candidate.translator} (${candidate.rip || 'Web-DL'})`
+                : `Türkçe (${candidate.rip || 'TurkceAltyazi'})`;
+
+              if (isAnime) {
+                // 1. WebVTT for anime (Universal: Smart TV, Web, Mobile)
+                taSubtitles.push({
+                  id: `ta-vtt-${dlInfo.altid}-${media.season || 0}-${media.episode || 0}`,
+                  url: `${baseUrl}/subtitles/download/${token}.vtt`,
+                  lang: 'tur',
+                  format: 'vtt',
+                  title: `${displayTitle} [WebVTT]`,
+                });
+
+                // 2. Styled ASS for anime (For VLC, MPV & Desktop Stremio with styled ASS)
+                taSubtitles.push({
+                  id: `ta-ass-${dlInfo.altid}-${media.season || 0}-${media.episode || 0}`,
+                  url: `${baseUrl}/subtitles/download/${token}.ass`,
+                  lang: 'tur',
+                  format: 'ass',
+                  title: `${displayTitle} [Styled ASS - VLC/MPV]`,
+                });
+              } else {
+                // Standard movies and series
+                taSubtitles.push({
+                  id: `ta-${dlInfo.altid}-${media.season || 0}-${media.episode || 0}`,
+                  url: `${baseUrl}/subtitles/download/${token}.vtt`,
+                  lang: 'tur',
+                  format: 'vtt',
+                  title: displayTitle,
+                });
+              }
+            } catch (candErr) {
+              // Ignore individual failed candidate forms
+            }
           }
+
+          if (taSubtitles.length > 0) break;
         }
       }
     } catch (err) {
@@ -158,14 +184,16 @@ async function aggregateSubtitles(media, baseUrl, userConfig = {}) {
 }
 
 /**
- * Downloads and converts the requested subtitle to WebVTT
+ * Downloads and converts the requested subtitle in target format (WebVTT, Styled ASS, or SRT)
  */
-async function resolveSubtitleVtt(tokenStr) {
-  const cached = vttCache.get(tokenStr);
+async function resolveSubtitle(tokenStr, targetFormat = 'vtt') {
+  const normFormat = (targetFormat || 'vtt').toLowerCase();
+  const cacheKey = `${tokenStr}:${normFormat}`;
+  const cached = subtitleCache.get(cacheKey);
   if (cached) return cached;
 
-  return downloadFlight.run(tokenStr, async () => {
-    const secondCheck = vttCache.get(tokenStr);
+  return downloadFlight.run(cacheKey, async () => {
+    const secondCheck = subtitleCache.get(cacheKey);
     if (secondCheck) return secondCheck;
 
     const token = decodeToken(tokenStr);
@@ -204,9 +232,11 @@ async function resolveSubtitleVtt(tokenStr) {
         season: token.season,
         episode: token.episode,
         requireEpisodeMatch: false,
+        targetFormat: normFormat,
+        offsetMs: token.offsetMs || 0,
       });
 
-      vttCache.set(tokenStr, extracted.body, config.cache.subtitleTtlMs);
+      subtitleCache.set(cacheKey, extracted.body, config.cache.subtitleTtlMs);
       return extracted.body;
     }
 
@@ -223,29 +253,55 @@ async function resolveSubtitleVtt(tokenStr) {
         season: token.season,
         episode: token.episode,
         requireEpisodeMatch: token.isPackage,
+        targetFormat: normFormat,
+        offsetMs: token.offsetMs || 0,
       });
 
-      vttCache.set(tokenStr, extracted.body, config.cache.subtitleTtlMs);
+      subtitleCache.set(cacheKey, extracted.body, config.cache.subtitleTtlMs);
       return extracted.body;
     }
 
     if (token.source === 'opensubtitles') {
       const vttContent = await openSubtitles.downloadOpenSubtitle(token.fileId, token.apiKey);
-      vttCache.set(tokenStr, vttContent, config.cache.subtitleTtlMs);
-      return vttContent;
+      let formatted = (normFormat === 'ass' || normFormat === 'ssa')
+        ? vttToAss(vttContent)
+        : (normFormat === 'srt')
+        ? vttToSrt(vttContent)
+        : vttContent;
+      if (token.offsetMs) {
+        formatted = shiftSubtitleTimestamps(formatted, token.offsetMs, normFormat);
+      }
+      subtitleCache.set(cacheKey, formatted, config.cache.subtitleTtlMs);
+      return formatted;
     }
 
     if (token.source === 'opensubtitles_v3') {
       const vttContent = await openSubtitles.downloadStremioOpenSubtitle(token.subUrl);
-      vttCache.set(tokenStr, vttContent, config.cache.subtitleTtlMs);
-      return vttContent;
+      let formatted = (normFormat === 'ass' || normFormat === 'ssa')
+        ? vttToAss(vttContent)
+        : (normFormat === 'srt')
+        ? vttToSrt(vttContent)
+        : vttContent;
+      if (token.offsetMs) {
+        formatted = shiftSubtitleTimestamps(formatted, token.offsetMs, normFormat);
+      }
+      subtitleCache.set(cacheKey, formatted, config.cache.subtitleTtlMs);
+      return formatted;
     }
 
     throw new Error('Unsupported subtitle provider source');
   });
 }
 
+/**
+ * Backwards compatibility helper for WebVTT requests
+ */
+async function resolveSubtitleVtt(tokenStr) {
+  return resolveSubtitle(tokenStr, 'vtt');
+}
+
 module.exports = {
   aggregateSubtitles,
+  resolveSubtitle,
   resolveSubtitleVtt,
 };

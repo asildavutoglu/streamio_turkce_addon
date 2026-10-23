@@ -1,10 +1,25 @@
 const assert = require('node:assert');
-const iconv = require('iconv-lite');
+let iconv = null;
+try {
+  iconv = require('iconv-lite');
+} catch {}
+
 const {
   decodeSubtitle,
   srtToVtt,
   assToVtt,
+  assToSrt,
+  srtToAss,
+  vttToAss,
+  vttToSrt,
+  convertToAss,
+  convertToSrt,
+  convertToVtt,
+  formatSubtitle,
   matchesEpisode,
+  cleanFilenameForEpisode,
+  extractEpisodeNumber,
+  shiftSubtitleTimestamps,
 } = require('../src/lib/archive');
 const { resolveKitsuAnime, parseMediaIdentifier } = require('../src/lib/animeResolver');
 const turkceAltyazi = require('../src/lib/turkcealtyazi');
@@ -29,9 +44,15 @@ async function runTests() {
   // Test 2: Windows-1254 Türkçe karakter çözme
   console.log('2️⃣ Windows-1254 Türkçe karakter çözme testi:');
   const turkishText = 'Şiirde Türkçe karakterler: ç, ğ, ı, ö, ş, ü, İ, Ğ, Ü, Ş, Ö, Ç';
-  const win1254Buffer = iconv.encode(turkishText, 'windows-1254');
+  const win1254Buffer = iconv
+    ? iconv.encode(turkishText, 'windows-1254')
+    : Buffer.from([0xfe, 0xf0, 0xfd, 0xe7, 0xf6, 0xfc]);
   const decodedText = decodeSubtitle(win1254Buffer);
-  assert.strictEqual(decodedText, turkishText, 'Windows-1254 doğru çözümlenmelidir');
+  if (iconv) {
+    assert.strictEqual(decodedText, turkishText, 'Windows-1254 doğru çözümlenmelidir');
+  } else {
+    assert.strictEqual(decodedText, 'şğıçöü', 'Windows-1254 doğru çözümlenmelidir');
+  }
   console.log('   ✅ Türkçe karakter çözme testi başarılı.');
 
   // Test 3: SRT -> WebVTT dönüştürme
@@ -49,8 +70,8 @@ Bu bir Türkçe altyazıdır.`;
   assert(vttSample.includes('00:01:20.500 --> 00:01:23.800'), 'Zaman damgası virgül yerine nokta olmalıdır');
   console.log('   ✅ SRT to VTT testi başarılı.');
 
-  // Test 4: ASS -> WebVTT dönüştürme
-  console.log('4️⃣ ASS -> WebVTT anime altyazı dönüştürme testi:');
+  // Test 4: ASS -> WebVTT & Styled ASS koruma testi
+  console.log('4️⃣ ASS -> WebVTT & Styled ASS koruma testi:');
   const assSample = `[Script Info]
 Title: Sample Anime
 [Events]
@@ -66,7 +87,23 @@ Dialogue: 0,0:00:05.40,0:00:07.80,Default,,0,0,0,,{\\pos(192,200)}İlk Konuşma!
   const firstCueIdx = assVtt.indexOf('İlk Konuşma');
   const songCueIdx = assVtt.indexOf('Bitiş Şarkısı');
   assert(firstCueIdx < songCueIdx, 'Zaman sıralaması kronolojik (artan) sırada olmalı');
-  console.log('   ✅ ASS to VTT testi başarılı (kronolojik sıralama ve vektör temizliği doğrulandı).');
+
+  // Styled ASS formatında orijinal stiller ve çizimler %100 korunmalıdır
+  const assRaw = convertToAss('anime.ass', Buffer.from(assSample, 'utf8'));
+  assert.strictEqual(assRaw, assSample, 'Styled ASS formatında orijinal stiller, fontlar ve efektler eksiksiz korunmalıdır');
+  assert(assRaw.includes('{\\pos(192,200)}'), 'Styled ASS pozisyon etiketlerini korumalıdır');
+  assert(assRaw.includes('{\\p1}m 10 20'), 'Styled ASS vektör çizimlerini korumalıdır');
+
+  // ASS -> SRT dönüştürme
+  const assSrt = assToSrt(assSample);
+  assert(assSrt.includes('İlk Konuşma!\nİkinci Satır'), 'ASS to SRT temiz diyalogları içermeli');
+  assert(assSrt.includes('00:00:05,400 --> 00:00:07,800'), 'SRT zaman damgası virgüllü olmalı');
+
+  // SRT -> ASS dönüştürme
+  const convertedAss = srtToAss(srtSample);
+  assert(convertedAss.includes('[Script Info]') && convertedAss.includes('[Events]'), 'SRT to ASS başlıkları içermeli');
+  assert(convertedAss.includes('Dialogue: 0,0:01:20.50,0:01:23.80,Default,,0,0,0,,Merhaba dünya!'), 'SRT to ASS diyalog satırı doğru biçimlendirilmeli');
+  console.log('   ✅ ASS & SRT dönüşüm ve Styled ASS koruma testleri başarılı.');
 
   // Test 5: Anime ve Dizi Bölüm Eşleştirme (matchesEpisode)
   console.log('5️⃣ Bölüm numarası eşleştirme testi:');
@@ -76,7 +113,17 @@ Dialogue: 0,0:00:05.40,0:00:07.80,Default,,0,0,0,,{\\pos(192,200)}İlk Konuşma!
   assert(matchesEpisode('Death_Note_05.srt', null, 5), 'Anime _05 eşleşmeli');
   assert(matchesEpisode('Attack_on_Titan_Bolum_5.srt', null, 5), 'Bolum 5 eşleşmeli');
   assert(!matchesEpisode('[SubsPlease] Frieren - 06 [1080p].ass', null, 5), '06, 5 ile eşleşmemeli');
-  console.log('   ✅ Bölüm eşleştirme testi başarılı.');
+
+  // CRC32 / Hex checksum ve karmaşık anime dosya adlarında yanlış eşleşme testleri
+  assert(!matchesEpisode('[Kaizoku] Jujutsu Kaisen - 36 (BD 1080p) [B09B33D3].ass', 2, 9), 'B09B hex hash içeren Bölüm 36 asla Sezon 2 Bölüm 9 ile eşleşmemeli');
+  assert.strictEqual(extractEpisodeNumber('[Kaizoku] Jujutsu Kaisen - 33 (BD 1080p) [174E215D].ass'), 33, 'Bölüm 33 doğru çıkarılmalı');
+  assert.strictEqual(extractEpisodeNumber('[Kaizoku] Jujutsu Kaisen - 27 (BD 1080p) [38C944E0].ass'), 27, 'Checksumdaki E0 rakamı yerine gerçek bölüm 27 çıkarılmalı');
+
+  // Zaman kaydırma (shiftSubtitleTimestamps) testi
+  const sampleVtt = 'WEBVTT\n\n00:00:04.160 --> 00:00:05.360\nTest';
+  const shiftedVtt = shiftSubtitleTimestamps(sampleVtt, 1250, 'vtt');
+  assert(shiftedVtt.includes('00:00:05.410 --> 00:00:06.610'), 'VTT +1250ms kaydırılmalı');
+  console.log('   ✅ Bölüm eşleştirme, CRC32 koruması ve zaman kaydırma testleri başarılı.');
 
   // Test 6: Kitsu Anime Çözümleyici (Canlı API)
   console.log('6️⃣ Kitsu Anime Çözümleme (Canlı Kitsu API):');
@@ -115,23 +162,42 @@ Dialogue: 0,0:00:05.40,0:00:07.80,Default,,0,0,0,,{\\pos(192,200)}İlk Konuşma!
   // Test 9: AniSub Anime Entegrasyonu (Jujutsu Kaisen Season 1 & 2)
   console.log('9️⃣ AniSub Anime Entegrasyonu (Jujutsu Kaisen):');
   try {
-    const { aggregateSubtitles, resolveSubtitleVtt } = require('../src/lib/aggregator');
+    const { aggregateSubtitles, resolveSubtitle, resolveSubtitleVtt } = require('../src/lib/aggregator');
     const mediaJJK1 = await parseMediaIdentifier('series', 'tt12343534:1:1');
     assert(mediaJJK1.isAnime, 'Jujutsu Kaisen anime olarak tanınmalı');
     assert.strictEqual(mediaJJK1.title, 'Jujutsu Kaisen', 'Başlık Jujutsu Kaisen olmalı');
     const subsJJK1 = await aggregateSubtitles(mediaJJK1, 'http://localhost:7000');
-    assert(subsJJK1.length > 0, 'Jujutsu Kaisen S1 altyazısı bulunmalı');
-    console.log(`   ✅ Jujutsu Kaisen S1E1 altyazısı bulundu: "${subsJJK1[0].title}"`);
+    assert(subsJJK1.length >= 2, 'Jujutsu Kaisen için hem WebVTT hem Styled ASS altyazı bulunmalı');
+    const hasVtt = subsJJK1.some((s) => s.format === 'vtt');
+    const hasAss = subsJJK1.some((s) => s.format === 'ass');
+    assert(hasVtt, 'WebVTT formatında altyazı olmalı');
+    assert(hasAss, 'Styled ASS formatında altyazı olmalı');
+    console.log(`   ✅ Jujutsu Kaisen S1E1 altyazıları bulundu (WebVTT & Styled ASS çift format).`);
 
-    // Jujutsu Kaisen Season 2 (konuşma ve diyalogların eksiksiz WebVTT akışı testi)
+    // Jujutsu Kaisen Season 2 (konuşma ve diyalogların eksiksiz WebVTT & Styled ASS akışı testi)
     const mediaJJK2 = await parseMediaIdentifier('series', 'tt12343534:2:1');
     const subsJJK2 = await aggregateSubtitles(mediaJJK2, 'http://localhost:7000');
-    assert(subsJJK2.length > 0, 'Jujutsu Kaisen S2 altyazısı bulunmalı');
-    const tokenJJK2 = subsJJK2[0].url.split('/').pop().replace('.vtt', '');
-    const vttJJK2 = await resolveSubtitleVtt(tokenJJK2);
+    assert(subsJJK2.length >= 2, 'Jujutsu Kaisen S2 altyazısı bulunmalı');
+    const vttSub = subsJJK2.find((s) => s.format === 'vtt') || subsJJK2[0];
+    const tokenJJK2 = vttSub.url.split('/').pop().replace(/\.(vtt|ass)$/, '');
+    const vttJJK2 = await resolveSubtitle(tokenJJK2, 'vtt');
     assert(vttJJK2.startsWith('WEBVTT'), 'JJK S2 VTT başlığı olmalı');
     assert(vttJJK2.includes('O yaz işler yoğundu.'), 'JJK S2 konuşma diyalogları eksiksiz içermeli');
-    console.log('   ✅ Jujutsu Kaisen S2E1 altyazısı başarıyla indirildi ve diyaloglar doğrulandı.');
+
+    const assJJK2 = await resolveSubtitle(tokenJJK2, 'ass');
+    assert(assJJK2.includes('O yaz işler yoğundu.'), 'JJK S2 ASS diyalogları içermeli');
+    console.log('   ✅ Jujutsu Kaisen S2E1 hem WebVTT hem Styled ASS olarak indirildi ve doğrulandı.');
+
+    // Jujutsu Kaisen Season 2 Episode 9 (Bölüm 33) doğrulama testi (Kullanıcının kayma sorunu yaşadığı bölüm)
+    const mediaJJK2Ep9 = await parseMediaIdentifier('series', 'tt12343534:2:9');
+    const subsJJK2Ep9 = await aggregateSubtitles(mediaJJK2Ep9, 'http://localhost:7000');
+    assert(subsJJK2Ep9.length >= 2, 'Jujutsu Kaisen S2E9 altyazısı bulunmalı');
+    const vttSubEp9 = subsJJK2Ep9.find((s) => s.format === 'vtt') || subsJJK2Ep9[0];
+    const tokenEp9 = vttSubEp9.url.split('/').pop().replace(/\.(vtt|ass)$/, '');
+    const vttEp9 = await resolveSubtitle(tokenEp9, 'vtt');
+    assert(vttEp9.startsWith('WEBVTT'), 'JJK S2E9 VTT başlığı olmalı');
+    assert(vttEp9.includes('Hocamdır kendisi!') || vttEp9.includes('Hocamın hatırı olmasaydı'), 'JJK S2E9 (Bölüm 33) diyaloglarını içermeli, yanlış Bölüm 36 değil!');
+    console.log('   ✅ Jujutsu Kaisen S2E9 doğru bölüm (Bölüm 33 - Shibuya Açılış) olarak indirildi ve diyaloglar doğrulandı.');
   } catch (err) {
     console.warn('   ⚠️ AniSub entegrasyon testi atlandı:', err.message);
   }

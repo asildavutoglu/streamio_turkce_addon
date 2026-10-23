@@ -1,12 +1,13 @@
 {
   "name": "stremio-turkce-altyazi-plus",
-  "version": "1.0.0",
+  "version": "1.1.1",
   "description": "Stremio için Film, Dizi ve Animeler (Kitsu/IMDb) odaklı çok kaynaklı Türkçe altyazı eklentisi",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "node test/test.js"
+    "test": "node test/test.js",
+    "test:unit": "node test/unit-test.js"
   },
   "keywords": [
     "stremio",

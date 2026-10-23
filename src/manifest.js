@@ -2,7 +2,7 @@ const { ONE_PACE_PREFIXES } = require('./lib/onepace');
 
 module.exports = {
   id: 'org.stremio.turkcealtyazi.plus',
-  version: '1.1.0',
+  version: '1.1.1',
   name: 'Türkçe Altyazı+ (Film, Dizi, Anime & One Pace)',
   description: 'Film, dizi, anime (Kitsu & IMDb) ve One Pace bölümleri için birleşik Türkçe altyazı eklentisi.',
   resources: ['subtitles'],

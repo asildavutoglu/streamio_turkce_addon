@@ -274,6 +274,14 @@ function renderLandingPage(manifest, manifestUrl) {
         <div class="feature-desc">Kitsu ID'lerini otomatik çözer, animelerde bulunamayan altyazıları eksiksiz getirir.</div>
       </div>
       <div class="feature-card">
+        <div class="feature-title">🎭 WebVTT & Styled ASS (VLC / MPV)</div>
+        <div class="feature-desc">Animelerde hem evrensel WebVTT hem de VLC/MPV için tüm stilleri, fontları ve karaoke efektlerini koruyan orijinal ASS formatını sunar.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-title">🏴‍☠️ One Pace Türkçe (442 Bölüm)</div>
+        <div class="feature-desc">One Pace Türkçe arşivi 37 Arc boyunca hem WebVTT hem Styled ASS ile eksiksiz entegre.</div>
+      </div>
+      <div class="feature-card">
         <div class="feature-title">🎬 Çift Kaynaklı Havuz</div>
         <div class="feature-desc">TurkceAltyazi.org ve OpenSubtitles veritabanlarını aynı anda tarayıp en iyi sonucu sunar.</div>
       </div>

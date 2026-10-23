@@ -2,16 +2,41 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const iconv = require('iconv-lite');
-const unzipper = require('unzipper');
+let iconv = null;
+try {
+  iconv = require('iconv-lite');
+} catch {}
+
+let unzipper = null;
+try {
+  unzipper = require('unzipper');
+} catch {}
 
 const SUPPORTED_EXTENSIONS = new Set(['.vtt', '.srt', '.ass', '.ssa']);
-const EXTENSION_PRIORITY = new Map([
-  ['.vtt', 0],
-  ['.srt', 1],
-  ['.ass', 2],
-  ['.ssa', 3],
-]);
+
+function getExtensionPriority(ext, targetFormat = 'vtt') {
+  const fmt = (targetFormat || 'vtt').toLowerCase();
+  if (fmt === 'ass' || fmt === 'ssa') {
+    if (ext === '.ass') return 0;
+    if (ext === '.ssa') return 1;
+    if (ext === '.srt') return 2;
+    if (ext === '.vtt') return 3;
+    return 99;
+  }
+  if (fmt === 'srt') {
+    if (ext === '.srt') return 0;
+    if (ext === '.vtt') return 1;
+    if (ext === '.ass') return 2;
+    if (ext === '.ssa') return 3;
+    return 99;
+  }
+  // Default: vtt
+  if (ext === '.vtt') return 0;
+  if (ext === '.ass') return 1;
+  if (ext === '.ssa') return 2;
+  if (ext === '.srt') return 3;
+  return 99;
+}
 
 /**
  * Robust Turkish & Unicode subtitle decoder
@@ -22,10 +47,12 @@ function decodeSubtitle(buffer) {
   // Check UTF-16 BOMs
   if (buffer.length >= 2) {
     if (buffer[0] === 0xff && buffer[1] === 0xfe) {
-      return iconv.decode(buffer.subarray(2), 'utf-16le');
+      if (iconv) return iconv.decode(buffer.subarray(2), 'utf-16le');
+      return new TextDecoder('utf-16le').decode(buffer.subarray(2));
     }
     if (buffer[0] === 0xfe && buffer[1] === 0xff) {
-      return iconv.decode(buffer.subarray(2), 'utf-16be');
+      if (iconv) return iconv.decode(buffer.subarray(2), 'utf-16be');
+      return new TextDecoder('utf-16be').decode(buffer.subarray(2));
     }
   }
 
@@ -36,12 +63,19 @@ function decodeSubtitle(buffer) {
   }
 
   // Try decoding as UTF-8 first
-  const utf8String = iconv.decode(contentBuffer, 'utf-8');
+  const utf8String = iconv
+    ? iconv.decode(contentBuffer, 'utf-8')
+    : new TextDecoder('utf-8', { fatal: false }).decode(contentBuffer);
 
   // Check if UTF-8 decode produced replacement characters (indicates non-UTF-8 source like Windows-1254)
   if (utf8String.includes('\uFFFD')) {
     // Has invalid UTF-8 bytes -> definitely Windows-1254 or ISO-8859-9
-    return iconv.decode(contentBuffer, 'windows-1254');
+    if (iconv) return iconv.decode(contentBuffer, 'windows-1254');
+    try {
+      return new TextDecoder('windows-1254').decode(contentBuffer);
+    } catch {
+      return utf8String;
+    }
   }
 
   // If UTF-8 looks clean and normal, return it
@@ -220,6 +254,240 @@ function assToVtt(value) {
   return `WEBVTT\n\n${vttCues.join('\n\n')}\n`;
 }
 
+function secondsToSrtTimestamp(sec) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  const ms = Math.round((sec - Math.floor(sec)) * 1000);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+}
+
+function secondsToAssTimestamp(sec) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  const cs = Math.floor(Math.round((sec - Math.floor(sec)) * 100));
+  return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
+}
+
+function srtTimestampToSeconds(value) {
+  const match = value.trim().match(/^(\d{1,2}):(\d{2}):(\d{2})[,.](\d{3})$/);
+  if (!match) return null;
+  return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]) + Number(match[4]) / 1000;
+}
+
+/**
+ * Converts ASS/SSA subtitles to standard SubRip (SRT) format
+ */
+function assToSrt(value) {
+  const lines = normalizeNewlines(value).split('\n');
+  let inEvents = false;
+  let format = [];
+  const cueList = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/^\[events\]$/i.test(trimmed)) {
+      inEvents = true;
+      continue;
+    }
+    if (inEvents && /^\[/.test(trimmed)) {
+      inEvents = false;
+      continue;
+    }
+    if (!inEvents) continue;
+
+    if (/^format\s*:/i.test(trimmed)) {
+      format = trimmed
+        .replace(/^format\s*:/i, '')
+        .split(',')
+        .map((field) => field.trim().toLowerCase());
+      continue;
+    }
+
+    if (!/^dialogue\s*:/i.test(trimmed) || format.length === 0) continue;
+
+    const rawFields = splitAssFields(trimmed.replace(/^dialogue\s*:/i, '').trim(), format.length);
+    if (rawFields.length < format.length) continue;
+
+    const startIdx = format.indexOf('start');
+    const endIdx = format.indexOf('end');
+    const styleIdx = format.indexOf('style');
+    const textIdx = format.indexOf('text');
+
+    if (startIdx === -1 || endIdx === -1 || textIdx === -1) continue;
+
+    const style = (rawFields[styleIdx] || '').toLowerCase();
+    if (style.includes('folder')) continue;
+
+    const startSec = assTimestampToSeconds(rawFields[startIdx] || '');
+    const endSec = assTimestampToSeconds(rawFields[endIdx] || '');
+    if (startSec === null || endSec === null || endSec <= startSec) continue;
+
+    const rawText = rawFields[textIdx] || '';
+    if (/^m\s+-?\d+/i.test(rawText.trim())) continue;
+
+    const cleanedText = cleanAssText(rawText);
+    if (!cleanedText) continue;
+
+    if (/^-\s*(warning|trash|intro cards|white news|fist of guidance|jujutsu tech|vending machine|episode titles)/i.test(cleanedText)) {
+      continue;
+    }
+
+    cueList.push({ startSec, endSec, text: cleanedText });
+  }
+
+  cueList.sort((a, b) => a.startSec - b.startSec || a.endSec - b.endSec);
+
+  const deduped = [];
+  const seenSet = new Set();
+  for (const cue of cueList) {
+    const key = `${cue.startSec.toFixed(2)}_${cue.endSec.toFixed(2)}_${cue.text}`;
+    if (!seenSet.has(key)) {
+      seenSet.add(key);
+      deduped.push(cue);
+    }
+  }
+
+  if (deduped.length === 0) {
+    throw new Error('The selected ASS file has no readable dialogue events');
+  }
+
+  const srtCues = deduped.map((c, idx) => {
+    return `${idx + 1}\n${secondsToSrtTimestamp(c.startSec)} --> ${secondsToSrtTimestamp(c.endSec)}\n${c.text}`;
+  });
+
+  return `${srtCues.join('\n\n')}\n`;
+}
+
+/**
+ * Converts SubRip (SRT) format to standard ASS format
+ */
+function srtToAss(value) {
+  const normalized = normalizeNewlines(value);
+  const blocks = normalized.split(/\n\s*\n/);
+
+  const header = `[Script Info]
+Title: Converted Subtitle
+ScriptType: v4.00+
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.601
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`;
+
+  const dialogueLines = [];
+
+  for (const block of blocks) {
+    const lines = block.trim().split('\n');
+    let timeLineIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (/\d{1,2}:\d{2}:\d{2}[,.]\d{3}\s+-->\s+\d{1,2}:\d{2}:\d{2}[,.]\d{3}/.test(lines[i])) {
+        timeLineIdx = i;
+        break;
+      }
+    }
+    if (timeLineIdx === -1) continue;
+
+    const timeMatch = lines[timeLineIdx].match(/(\d{1,2}:\d{2}:\d{2}[,.]\d{3})\s+-->\s+(\d{1,2}:\d{2}:\d{2}[,.]\d{3})/);
+    if (!timeMatch) continue;
+
+    const startSec = srtTimestampToSeconds(timeMatch[1]);
+    const endSec = srtTimestampToSeconds(timeMatch[2]);
+    if (startSec === null || endSec === null || endSec <= startSec) continue;
+
+    const textLines = lines.slice(timeLineIdx + 1).map((l) => l.trim()).filter(Boolean);
+    if (textLines.length === 0) continue;
+
+    const assText = textLines.join('\\N');
+    dialogueLines.push(`Dialogue: 0,${secondsToAssTimestamp(startSec)},${secondsToAssTimestamp(endSec)},Default,,0,0,0,,${assText}`);
+  }
+
+  if (dialogueLines.length === 0) {
+    return `${header}\n`;
+  }
+
+  return `${header}\n${dialogueLines.join('\n')}\n`;
+}
+
+function vttToAss(value) {
+  const withoutHeader = normalizeNewlines(value).replace(/^WEBVTT[^\n]*\n*/i, '');
+  return srtToAss(withoutHeader);
+}
+
+function vttToSrt(value) {
+  const withoutHeader = normalizeNewlines(value).replace(/^WEBVTT[^\n]*\n*/i, '');
+  const blocks = withoutHeader.split(/\n\s*\n/);
+  const srtBlocks = [];
+  let index = 1;
+
+  for (const block of blocks) {
+    const lines = block.trim().split('\n');
+    let timeLineIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (/\d{1,2}:\d{2}:\d{2}[,.]\d{3}\s+-->\s+\d{1,2}:\d{2}:\d{2}[,.]\d{3}/.test(lines[i])) {
+        timeLineIdx = i;
+        break;
+      }
+    }
+    if (timeLineIdx === -1) continue;
+
+    const convertedTime = lines[timeLineIdx].replace(
+      /(\d{1,2}:\d{2}:\d{2})\.(\d{3})\s+-->\s+(\d{1,2}:\d{2}:\d{2})\.(\d{3})/,
+      '$1,$2 --> $3,$4'
+    );
+    const textLines = lines.slice(timeLineIdx + 1).join('\n');
+    srtBlocks.push(`${index}\n${convertedTime}\n${textLines}`);
+    index += 1;
+  }
+
+  return `${srtBlocks.join('\n\n')}\n`;
+}
+
+/**
+ * Returns ASS subtitle representation
+ * - If source is ASS/SSA: preserves 100% of original fansub styling, fonts, karaoke, and effects!
+ * - If source is SRT/VTT: converts cleanly to valid ASS structure.
+ */
+function convertToAss(filename, buffer) {
+  const extension = path.extname(filename).toLowerCase();
+  const decoded = decodeSubtitle(buffer);
+  if (extension === '.ass' || extension === '.ssa') {
+    return decoded;
+  }
+  if (extension === '.srt') return srtToAss(decoded);
+  if (extension === '.vtt') return vttToAss(decoded);
+  throw new Error(`Unsupported subtitle format for ASS: ${extension}`);
+}
+
+/**
+ * Returns SRT subtitle representation
+ */
+function convertToSrt(filename, buffer) {
+  const extension = path.extname(filename).toLowerCase();
+  const decoded = decodeSubtitle(buffer);
+  if (extension === '.srt') return decoded;
+  if (extension === '.vtt') return vttToSrt(decoded);
+  if (extension === '.ass' || extension === '.ssa') return assToSrt(decoded);
+  throw new Error(`Unsupported subtitle format for SRT: ${extension}`);
+}
+
+function formatSubtitle(filename, buffer, targetFormat = 'vtt') {
+  const fmt = (targetFormat || 'vtt').toLowerCase();
+  if (fmt === 'ass' || fmt === 'ssa') {
+    return convertToAss(filename, buffer);
+  }
+  if (fmt === 'srt') {
+    return convertToSrt(filename, buffer);
+  }
+  return convertToVtt(filename, buffer);
+}
+
 function convertToVtt(filename, buffer) {
   const extension = path.extname(filename).toLowerCase();
   const decoded = decodeSubtitle(buffer);
@@ -230,19 +498,50 @@ function convertToVtt(filename, buffer) {
 }
 
 /**
+ * Strips metadata, resolutions, codecs, CRC32 checksums, and group tags to isolate episode text
+ */
+function cleanFilenameForEpisode(filename) {
+  let name = path.basename(filename);
+  name = name.replace(/\.[a-z0-9]+$/i, '');
+  // Remove CRC32 / 8-char hex checksums: [174E215D], [B09B33D3], [2F8ED645], etc.
+  name = name.replace(/[[({][0-9a-fA-F]{8}[\])}]/g, ' ');
+  // Remove resolution & video specs
+  name = name.replace(/\b(?:2160p|1080p|720p|480p|576p|4k)\b/gi, ' ');
+  name = name.replace(/\b(?:x264|x265|h264|h265|hevc|avc|av1|10bit|8bit)\b/gi, ' ');
+  name = name.replace(/\b(?:bluray|bd|web-?dl|webrip|dvdrip|hdtv|remux|tvrip)\b/gi, ' ');
+  name = name.replace(/\b(?:aac|flac|ddp|ac3|dts|mp3|dual-audio)(?:[._-]?\d(?:\.\d)?)?\b/gi, ' ');
+  // Remove group tags in brackets at start: [Kaizoku], [SubsPlease], etc.
+  name = name.replace(/^\[[^\]]+\]\s*/i, ' ');
+  name = name.replace(/[([{\]})]/g, ' ');
+  return name.trim();
+}
+
+/**
  * Extracts episode number from filename
  */
 function extractEpisodeNumber(filename) {
-  const base = path.basename(filename).toLowerCase();
-  const seMatch = base.match(/s\d+e(\d+)/i) || base.match(/\d+x(\d+)/i);
+  const clean = cleanFilenameForEpisode(filename);
+
+  // 1. S01E05 or 1x05
+  const seMatch = clean.match(/s\d+[._\s-]*e(\d+)\b/i) || clean.match(/\b\d+x(\d+)\b/i);
   if (seMatch) return Number.parseInt(seMatch[1], 10);
 
-  const epMatch =
-    base.match(/(?:b[oö]l[uü]m|ep|episode|e)[\s._-]*(\d+)/i) ||
-    base.match(/[\s_\\-\\[](\d{2,3})(?:[\]._\-\\s]|$)/i) ||
-    base.match(/^(\d+)\./i);
+  // 2. Explicit episode keywords: "ep 05", "episode 05", "bolum 05"
+  const epWordMatch = clean.match(/\b(?:b[oö]l[uü]m|ep|episode)\b[\s._-]*(\d+)\b/i);
+  if (epWordMatch) return Number.parseInt(epWordMatch[1], 10);
 
-  if (epMatch) return Number.parseInt(epMatch[1], 10);
+  // 3. Anime dash pattern: " - 33" or " - 05"
+  const dashMatch = clean.match(/(?:^|\s)-\s*(\d+)\b/);
+  if (dashMatch) return Number.parseInt(dashMatch[1], 10);
+
+  // 4. Standalone number at start (e.g. "09" or "09 - Title")
+  const startNumMatch = clean.match(/^(\d+)\b/);
+  if (startNumMatch) return Number.parseInt(startNumMatch[1], 10);
+
+  // 5. Standalone number separated by spaces or punctuation
+  const standaloneMatch = clean.match(/(?:^|[\s._-])(\d{1,4})(?:[\s._-]|$)/);
+  if (standaloneMatch) return Number.parseInt(standaloneMatch[1], 10);
+
   return null;
 }
 
@@ -251,38 +550,114 @@ function extractEpisodeNumber(filename) {
  */
 function matchesEpisode(filename, season, episode) {
   if (episode === null || episode === undefined) return true; // Movie or no episode requested
-  const value = path.basename(filename).toLowerCase();
+  const clean = cleanFilenameForEpisode(filename);
   const ep = Number(episode);
   const s = season !== null && season !== undefined ? Number(season) : null;
 
-  const epStr = String(ep);
-  const ep2Str = epStr.padStart(2, '0');
-  const ep3Str = epStr.padStart(3, '0');
-
-  // Standard season + episode patterns (e.g. S01E05, 1x05, Season 1 Episode 5)
-  if (s !== null) {
-    const sStr = String(s);
-    const s2Str = sStr.padStart(2, '0');
-    const standardPatterns = [
-      new RegExp(`(?:^|[^a-z0-9])s0?${sStr}[^a-z0-9]*e0?${epStr}(?:[^0-9]|$)`, 'i'),
-      new RegExp(`(?:^|[^0-9])0?${sStr}x0?${epStr}(?:[^0-9]|$)`, 'i'),
-      new RegExp(`season[^0-9]*0?${sStr}[^a-z0-9]+episode[^0-9]*0?${epStr}(?:[^0-9]|$)`, 'i'),
-      new RegExp(`s${s2Str}e${ep2Str}`, 'i'),
-    ];
-    if (standardPatterns.some((pattern) => pattern.test(value))) return true;
+  // 1. If season is explicitly present in filename (e.g. S02E09 or 2x09)
+  const seMatch = clean.match(/s(\d+)[._\s-]*e(\d+)\b/i) || clean.match(/\b(\d+)x(\d+)\b/i);
+  if (seMatch) {
+    const fileSeason = Number.parseInt(seMatch[1], 10);
+    const fileEpisode = Number.parseInt(seMatch[2], 10);
+    if (s !== null) {
+      return fileSeason === s && fileEpisode === ep;
+    }
+    return fileEpisode === ep;
   }
 
-  // Anime / Absolute episode patterns:
-  // e.g. "Death Note - 05.srt", "Anime_05.ass", "[Group] Title - 05 [1080p].srt", "Bolum 5", "Episode 05"
-  const animePatterns = [
-    new RegExp(`(?:b[oö]l[uü]m|ep|episode|e)[^0-9a-z]*0?${epStr}(?:[^0-9a-z]|$)`, 'i'),
-    new RegExp(`[\\s_\\-\\[]${ep2Str}(?:\\.[a-z0-9]+|[\\]_\\-\\s])`, 'i'),
-    new RegExp(`[\\s_\\-\\[]${ep3Str}(?:\\.[a-z0-9]+|[\\]_\\-\\s])`, 'i'),
-    new RegExp(`^0?${epStr}\\.[a-z0-9]+$`, 'i'),
-    new RegExp(`(?:^|[^0-9])${ep2Str}(?:[^0-9]|$)`, 'i'),
-  ];
+  // If filename has a DIFFERENT season marker (e.g. S01 when S02 was requested), reject it!
+  if (s !== null) {
+    const fileOnlySeasonMatch = clean.match(/\bs(\d+)\b/i);
+    if (fileOnlySeasonMatch && Number.parseInt(fileOnlySeasonMatch[1], 10) !== s) {
+      return false;
+    }
+  }
 
-  return animePatterns.some((pattern) => pattern.test(value));
+  // 2. Direct episode number match from clean filename
+  const extractedEp = extractEpisodeNumber(filename);
+  if (extractedEp !== null && extractedEp === ep) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Shifts subtitle timestamps by offsetMs milliseconds for WebVTT, SRT, or ASS
+ */
+function shiftSubtitleTimestamps(content, offsetMs, format = 'vtt') {
+  if (!offsetMs || offsetMs === 0 || !content) return content;
+  const offsetSec = offsetMs / 1000;
+
+  function toTimestampVtt(sec) {
+    const clamped = Math.max(0, sec);
+    const h = Math.floor(clamped / 3600);
+    const m = Math.floor((clamped % 3600) / 60);
+    const s = Math.floor(clamped % 60);
+    const ms = Math.round((clamped - Math.floor(clamped)) * 1000);
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+  }
+
+  function toTimestampSrt(sec) {
+    const clamped = Math.max(0, sec);
+    const h = Math.floor(clamped / 3600);
+    const m = Math.floor((clamped % 3600) / 60);
+    const s = Math.floor(clamped % 60);
+    const ms = Math.round((clamped - Math.floor(clamped)) * 1000);
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+  }
+
+  function toTimestampAss(sec) {
+    const clamped = Math.max(0, sec);
+    const h = Math.floor(clamped / 3600);
+    const m = Math.floor((clamped % 3600) / 60);
+    const s = Math.floor(clamped % 60);
+    const cs = Math.floor(Math.round((clamped - Math.floor(clamped)) * 100));
+    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
+  }
+
+  function parseVttSec(h, m, s, ms) {
+    return Number(h) * 3600 + Number(m) * 60 + Number(s) + Number(ms) / 1000;
+  }
+
+  const fmt = (format || 'vtt').toLowerCase();
+
+  if (fmt === 'ass' || fmt === 'ssa') {
+    return content.replace(
+      /^(Dialogue:\s*[^,]+,)(\d+:\d{2}:\d{2}\.\d{2}),(\d+:\d{2}:\d{2}\.\d{2})(,.*)$/gm,
+      (_, prefix, start, end, suffix) => {
+        const parseAssSec = (t) => {
+          const p = t.split(':');
+          const sp = p[2].split('.');
+          return Number(p[0]) * 3600 + Number(p[1]) * 60 + Number(sp[0]) + Number(sp[1]) / 100;
+        };
+        const sSec = parseAssSec(start) + offsetSec;
+        const eSec = parseAssSec(end) + offsetSec;
+        return `${prefix}${toTimestampAss(sSec)},${toTimestampAss(eSec)}${suffix}`;
+      }
+    );
+  }
+
+  if (fmt === 'srt') {
+    return content.replace(
+      /(\d{2}):(\d{2}):(\d{2}),(\d{3})\s+-->\s+(\d{2}):(\d{2}):(\d{2}),(\d{3})/g,
+      (_, h1, m1, s1, ms1, h2, m2, s2, ms2) => {
+        const sSec = parseVttSec(h1, m1, s1, ms1) + offsetSec;
+        const eSec = parseVttSec(h2, m2, s2, ms2) + offsetSec;
+        return `${toTimestampSrt(sSec)} --> ${toTimestampSrt(eSec)}`;
+      }
+    );
+  }
+
+  // Default WebVTT
+  return content.replace(
+    /(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s+-->\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})/g,
+    (_, h1, m1, s1, ms1, h2, m2, s2, ms2) => {
+      const sSec = parseVttSec(h1, m1, s1, ms1) + offsetSec;
+      const eSec = parseVttSec(h2, m2, s2, ms2) + offsetSec;
+      return `${toTimestampVtt(sSec)} --> ${toTimestampVtt(eSec)}`;
+    }
+  );
 }
 
 let path7za = null;
@@ -412,22 +787,29 @@ async function getArchiveEntries(archiveBuffer) {
 }
 
 /**
- * Extracts and converts matching subtitle from in-memory ZIP archive
+ * Extracts and formats matching subtitle from in-memory ZIP archive
  */
-async function extractSubtitleFromArchive(archiveBuffer, { season = null, episode = null, requireEpisodeMatch = false } = {}) {
+async function extractSubtitleFromArchive(
+  archiveBuffer,
+  { season = null, episode = null, requireEpisodeMatch = false, targetFormat = 'vtt', offsetMs = 0 } = {}
+) {
   const { entries, cleanup } = await getArchiveEntries(archiveBuffer);
 
   try {
     if (entries.length === 0) {
-      throw new Error('Subtitle archive contains no supported subtitle files (.srt, .vtt, .ass)');
+      throw new Error('Subtitle archive contains no supported subtitle files (.srt, .vtt, .ass, .ssa)');
     }
 
     let ranked = entries
-      .map((entry) => ({
-        entry,
-        episodeMatch: matchesEpisode(entry.path, season, episode),
-        priority: EXTENSION_PRIORITY.get(path.extname(entry.path).toLowerCase()) ?? 99,
-      }))
+      .map((entry) => {
+        const ext = path.extname(entry.path).toLowerCase();
+        return {
+          entry,
+          ext,
+          episodeMatch: matchesEpisode(entry.path, season, episode),
+          priority: getExtensionPriority(ext, targetFormat),
+        };
+      })
       .filter((candidate) => !requireEpisodeMatch || candidate.episodeMatch);
 
     const hasMatch = ranked.some((candidate) => candidate.episodeMatch);
@@ -456,10 +838,12 @@ async function extractSubtitleFromArchive(archiveBuffer, { season = null, episod
       }
 
       if (matchedEntry) {
+        const matchedExt = path.extname(matchedEntry.path).toLowerCase();
         ranked = [{
           entry: matchedEntry,
+          ext: matchedExt,
           episodeMatch: true,
-          priority: 0,
+          priority: getExtensionPriority(matchedExt, targetFormat),
         }];
       }
     }
@@ -478,17 +862,22 @@ async function extractSubtitleFromArchive(archiveBuffer, { season = null, episod
     for (const item of ranked) {
       try {
         const buffer = await item.entry.buffer();
-        const vttBody = convertToVtt(item.entry.path, buffer);
+        let body = formatSubtitle(item.entry.path, buffer, targetFormat);
+        if (offsetMs) {
+          body = shiftSubtitleTimestamps(body, offsetMs, targetFormat);
+        }
         return {
-          body: vttBody,
+          body,
+          format: targetFormat,
           sourceName: path.basename(item.entry.path),
+          sourceExt: path.extname(item.entry.path).toLowerCase(),
         };
       } catch (err) {
         lastError = err;
       }
     }
 
-    throw lastError || new Error('Failed to convert any subtitle in archive to WebVTT');
+    throw lastError || new Error(`Failed to extract or convert subtitle to ${targetFormat.toUpperCase()}`);
   } finally {
     cleanup();
   }
@@ -497,8 +886,19 @@ async function extractSubtitleFromArchive(archiveBuffer, { season = null, episod
 module.exports = {
   decodeSubtitle,
   convertToVtt,
+  convertToAss,
+  convertToSrt,
+  formatSubtitle,
   srtToVtt,
   assToVtt,
+  assToSrt,
+  srtToAss,
+  vttToAss,
+  vttToSrt,
+  cleanFilenameForEpisode,
+  extractEpisodeNumber,
   matchesEpisode,
   extractSubtitleFromArchive,
+  shiftSubtitleTimestamps,
+  getExtensionPriority,
 };

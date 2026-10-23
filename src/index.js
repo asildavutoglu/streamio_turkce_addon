@@ -5,7 +5,7 @@ const config = require('./config');
 const manifest = require('./manifest');
 const renderLandingPage = require('./landingTemplate');
 const { parseMediaIdentifier } = require('./lib/animeResolver');
-const { aggregateSubtitles, resolveSubtitleVtt } = require('./lib/aggregator');
+const { aggregateSubtitles, resolveSubtitle, resolveSubtitleVtt } = require('./lib/aggregator');
 const { getOnePaceSubtitles, getOnePaceVtt } = require('./lib/onepace');
 
 const app = express();
@@ -117,16 +117,27 @@ app.get('/subtitles/onepace/:videoId.vtt', async (req, res) => {
   }
 });
 
-// Subtitle Delivery Endpoint (VTT Stream)
-app.get('/subtitles/download/:token.vtt', async (req, res) => {
+// Subtitle Delivery Endpoint (WebVTT, Styled ASS, SSA, SRT)
+app.get([
+  '/subtitles/download/:token.:ext(vtt|ass|ssa|srt)',
+  '/subtitles/download/:token.vtt',
+], async (req, res) => {
   const { token } = req.params;
+  const ext = (req.params.ext || 'vtt').toLowerCase();
 
   try {
-    const vttBody = await resolveSubtitleVtt(token);
-    const etag = `"${crypto.createHash('sha256').update(vttBody).digest('base64url')}"`;
+    const subBody = await resolveSubtitle(token, ext);
+    const etag = `"${crypto.createHash('sha256').update(subBody).digest('base64url')}"`;
+
+    const contentTypes = {
+      vtt: 'text/vtt; charset=utf-8',
+      ass: 'text/x-ssa; charset=utf-8',
+      ssa: 'text/x-ssa; charset=utf-8',
+      srt: 'text/plain; charset=utf-8',
+    };
 
     res.set({
-      'Content-Type': 'text/vtt; charset=utf-8',
+      'Content-Type': contentTypes[ext] || 'text/plain; charset=utf-8',
       'Cache-Control': 'public, max-age=86400, stale-while-revalidate=43200',
       'ETag': etag,
     });
@@ -135,9 +146,9 @@ app.get('/subtitles/download/:token.vtt', async (req, res) => {
       return res.status(304).end();
     }
 
-    return res.send(vttBody);
+    return res.send(subBody);
   } catch (err) {
-    console.error('[Router] Subtitle delivery error:', err.message);
+    console.error(`[Router] Subtitle delivery error (${ext}):`, err.message);
     return res.status(404).type('text').send('Altyazi bulunamadi veya su anda indirilemiyor.');
   }
 });

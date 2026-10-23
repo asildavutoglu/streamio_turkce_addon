@@ -15,7 +15,7 @@ Bu eklenti, Stremio'daki en büyük eksikliklerden biri olan **Anime Kitsu kimli
 - 🏴‍☠️ **One Pace Türkçe Altyazı Desteği (442 Bölüm)**: `asildavutoglu/one-pace-tr-addon` deposundaki 442 bölümün (Romance Dawn'dan Wano ve Egghead'e kadar 37 Arc) tamamını içerir. Hem WebVTT hem de Styled ASS formatında anında sunar.
 - 🎬 **Çok Kaynaklı Havuz**: AniSub, TurkceAltyazi.org ve OpenSubtitles kütüphanelerini aynı anda tarar.
 - ✨ **Akıllı Türkçe Karakter Onarımı**: `Windows-1254` ve `ISO-8859-9` ile kodlanmış dosyalardaki bozuk Türkçe karakterleri (`ş, ğ, ı, ç, ö, ü`) otomatik olarak tespit eder ve temiz `UTF-8 WebVTT` formatına çevirir.
-- 🎭 **ASS/SSA Anime Format Dönüşümü**: Animelerde yaygın olan `.ass` ve `.ssa` formatındaki altyazıları stil etiketlerini temizleyerek Stremio'nun oynatabileceği standart `WebVTT`'ye dönüştürür.
+- 🎭 **Çift Format Anime Desteği (Hem WebVTT Hem Styled ASS/SSA)**: Animelerde yaygın olan `.ass` ve `.ssa` formatındaki altyazıları hem **evrensel WebVTT** (Smart TV, Web ve mobil cihazlarda sorunsuz oynatılması için stil etiketleri temizlenmiş) hem de **Styled ASS** (VLC, MPV ve Masaüstü Stremio'da tüm yazı tipleri, renkler, konumlandırmalar ve karaoke efektleri eksiksiz korunarak) olarak aynı anda sunar. İster varsayılan oynatıcıda ister harici VLC/MPV ile izleyin!
 - ⚡ **Yüksek Hız & Akıllı Önbellek**: Bellek içi (In-Memory) TTL önbellek ve SingleFlight ile sunucu ve sağlayıcı yükünü minimize eder, anında yanıt verir.
 - ☁️ **7/24 Kesintisiz Bulut Altyapısı**: Vercel üzerinde 7/24 barındırılır; harici sunucu veya bilgisayar açık tutmaya gerek kalmadan doğrudan kullanılabilir.
 
@@ -67,8 +67,8 @@ Tarayıcınızda `http://127.0.0.1:7000` adresini açarak yerel arayüze erişeb
 | :--- | :--- | :--- | :--- |
 | **One Pace (Romance Dawn 1)** | One Pace | `RO_1` | ✅ WebVTT, Styled ASS & SRT (3 format) |
 | **One Pace (Wano 1)** | One Pace | `WA_1` | ✅ WebVTT, Styled ASS & SRT (3 format) |
-| **Attack on Titan (S01E01)** | Anime | `kitsu:7442:1` | ✅ 10 Türkçe altyazı bulundu & VTT'ye çevrildi |
-| **Death Note (S01E01)** | Anime | `kitsu:1376:1` | ✅ 8 Türkçe altyazı bulundu |
+| **Attack on Titan (S01E01)** | Anime | `kitsu:7442:1` | ✅ WebVTT & Styled ASS (VLC/MPV) çift format |
+| **Death Note (S01E01)** | Anime | `kitsu:1376:1` | ✅ WebVTT & Styled ASS (VLC/MPV) çift format |
 | **Inception** | Film | `tt1375666` | ✅ 12 Türkçe altyazı bulundu |
 | **Breaking Bad (S01E01)** | Dizi | `tt0903747:1:1` | ✅ 7 Türkçe altyazı bulundu |
 
