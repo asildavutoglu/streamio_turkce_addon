@@ -1,4 +1,7 @@
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const iconv = require('iconv-lite');
 const unzipper = require('unzipper');
 
@@ -41,7 +44,6 @@ function decodeSubtitle(buffer) {
     return iconv.decode(contentBuffer, 'windows-1254');
   }
 
-  // Check for common Turkish mojibake in improperly read Windows-1254 (e.g. Ã§ for ç, Ä± for ı, Ã¼ for ü)
   // If UTF-8 looks clean and normal, return it
   return utf8String;
 }
@@ -90,19 +92,30 @@ function splitAssFields(value, fieldCount) {
   return fields;
 }
 
-function assTimestampToVtt(value) {
+function assTimestampToSeconds(value) {
   const match = value.trim().match(/^(\d+):(\d{2}):(\d{2})[.:](\d{2,3})$/);
   if (!match) return null;
-  const milliseconds = match[4].length === 2 ? `${match[4]}0` : match[4];
-  return `${match[1].padStart(2, '0')}:${match[2]}:${match[3]}.${milliseconds}`;
+  const milliseconds = match[4].length === 2 ? Number(`${match[4]}0`) : Number(match[4]);
+  return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]) + milliseconds / 1000;
+}
+
+function secondsToVttTimestamp(sec) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  const ms = Math.round((sec - Math.floor(sec)) * 1000);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
 }
 
 function cleanAssText(value) {
   return value
-    .replace(/\{[^}]*\}/g, '')       // Strip ASS style overrides like {\an8}, {\pos(x,y)}, {\c&H...}
-    .replace(/\\N/gi, '\n')          // Hard line break
-    .replace(/\\n/gi, '\n')          // Soft line break
-    .replace(/\\h/gi, ' ')           // Hard space
+    // Remove drawing commands: {\p1}...{\p0} or {\p1}...$
+    .replace(/\{[^}]*\\p[1-9][^}]*\}.*?(?:\{[^}]*\\p0[^}]*\}|$)/gi, '')
+    // Remove all remaining ASS style tags
+    .replace(/\{[^}]*\}/g, '')
+    .replace(/\\N/gi, '\n')
+    .replace(/\\n/gi, '\n')
+    .replace(/\\h/gi, ' ')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -111,12 +124,16 @@ function cleanAssText(value) {
 
 /**
  * Converts ASS/SSA subtitles (very common in anime) to standard WebVTT
+ * - Cleans vector drawing commands and style tags
+ * - Filters out Aegisub section headers/comments
+ * - Sorts all cues chronologically by start time (strictly required by WebVTT spec)
+ * - Deduplicates redundant overlapping typesetting cues
  */
 function assToVtt(value) {
   const lines = normalizeNewlines(value).split('\n');
   let inEvents = false;
   let format = [];
-  const cues = [];
+  const cueList = [];
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -137,28 +154,70 @@ function assToVtt(value) {
         .map((field) => field.trim().toLowerCase());
       continue;
     }
+
+    // Skip Comment lines
     if (!/^dialogue\s*:/i.test(trimmed) || format.length === 0) continue;
 
     const rawFields = splitAssFields(trimmed.replace(/^dialogue\s*:/i, '').trim(), format.length);
+    if (rawFields.length < format.length) continue;
+
     const startIdx = format.indexOf('start');
     const endIdx = format.indexOf('end');
+    const styleIdx = format.indexOf('style');
     const textIdx = format.indexOf('text');
 
     if (startIdx === -1 || endIdx === -1 || textIdx === -1) continue;
 
-    const start = assTimestampToVtt(rawFields[startIdx] || '');
-    const end = assTimestampToVtt(rawFields[endIdx] || '');
-    const text = cleanAssText(rawFields[textIdx] || '');
+    const style = (rawFields[styleIdx] || '').toLowerCase();
+    // Skip Aegisub organizational folder/section styles
+    if (style.includes('folder')) continue;
 
-    if (start && end && text) {
-      cues.push(`${start} --> ${end}\n${text}`);
+    const startSec = assTimestampToSeconds(rawFields[startIdx] || '');
+    const endSec = assTimestampToSeconds(rawFields[endIdx] || '');
+    if (startSec === null || endSec === null || endSec <= startSec) continue;
+
+    const rawText = rawFields[textIdx] || '';
+    // Skip lines that consist entirely of drawing vector coordinates without tags
+    if (/^m\s+-?\d+/i.test(rawText.trim())) continue;
+
+    const cleanedText = cleanAssText(rawText);
+    if (!cleanedText) continue;
+
+    // Skip typical comment/folder labels in fansub scripts
+    if (/^-\s*(warning|trash|intro cards|white news|fist of guidance|jujutsu tech|vending machine|episode titles)/i.test(cleanedText)) {
+      continue;
+    }
+
+    cueList.push({
+      startSec,
+      endSec,
+      text: cleanedText,
+    });
+  }
+
+  // WebVTT specification strictly mandates cues must be sorted in ascending order of start time
+  cueList.sort((a, b) => a.startSec - b.startSec || a.endSec - b.endSec);
+
+  // Deduplicate consecutive identical cues created by shadow/blur layers
+  const deduped = [];
+  const seenSet = new Set();
+  for (const cue of cueList) {
+    const key = `${cue.startSec.toFixed(2)}_${cue.endSec.toFixed(2)}_${cue.text}`;
+    if (!seenSet.has(key)) {
+      seenSet.add(key);
+      deduped.push(cue);
     }
   }
 
-  if (cues.length === 0) {
+  if (deduped.length === 0) {
     throw new Error('The selected ASS file has no readable dialogue events');
   }
-  return `WEBVTT\n\n${cues.join('\n\n')}\n`;
+
+  const vttCues = deduped.map((c) => {
+    return `${secondsToVttTimestamp(c.startSec)} --> ${secondsToVttTimestamp(c.endSec)}\n${c.text}`;
+  });
+
+  return `WEBVTT\n\n${vttCues.join('\n\n')}\n`;
 }
 
 function convertToVtt(filename, buffer) {
@@ -168,6 +227,23 @@ function convertToVtt(filename, buffer) {
   if (extension === '.srt') return srtToVtt(decoded);
   if (extension === '.ass' || extension === '.ssa') return assToVtt(decoded);
   throw new Error(`Unsupported subtitle format: ${extension}`);
+}
+
+/**
+ * Extracts episode number from filename
+ */
+function extractEpisodeNumber(filename) {
+  const base = path.basename(filename).toLowerCase();
+  const seMatch = base.match(/s\d+e(\d+)/i) || base.match(/\d+x(\d+)/i);
+  if (seMatch) return Number.parseInt(seMatch[1], 10);
+
+  const epMatch =
+    base.match(/(?:b[oö]l[uü]m|ep|episode|e)[\s._-]*(\d+)/i) ||
+    base.match(/[\s_\\-\\[](\d{2,3})(?:[\]._\-\\s]|$)/i) ||
+    base.match(/^(\d+)\./i);
+
+  if (epMatch) return Number.parseInt(epMatch[1], 10);
+  return null;
 }
 
 /**
@@ -209,70 +285,177 @@ function matchesEpisode(filename, season, episode) {
   return animePatterns.some((pattern) => pattern.test(value));
 }
 
+let path7za = null;
+try {
+  path7za = require('7zip-bin').path7za;
+} catch {}
+
+/**
+ * Extracts archive using 7za (or system tar as fallback)
+ * Supports ZIP with LZMA2/XZ Method 95, Deflate64, 7z, etc. on all platforms
+ */
+function extractWithExternal(archiveBuffer) {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sub-ext-'));
+  const zipPath = path.join(tmpDir, 'archive.zip');
+  fs.writeFileSync(zipPath, archiveBuffer);
+  const extractDir = path.join(tmpDir, 'extracted');
+  fs.mkdirSync(extractDir);
+
+  try {
+    if (path7za && fs.existsSync(path7za)) {
+      execFileSync(path7za, ['x', zipPath, `-o${extractDir}`, '-y'], {
+        windowsHide: true,
+        timeout: 15000,
+        stdio: 'ignore',
+      });
+    } else {
+      execFileSync('tar', ['-xf', zipPath, '-C', extractDir], {
+        windowsHide: true,
+        timeout: 15000,
+      });
+    }
+
+    const entries = [];
+    function walk(dir) {
+      const items = fs.readdirSync(dir, { withFileTypes: true });
+      for (const item of items) {
+        const full = path.join(dir, item.name);
+        if (item.isDirectory()) {
+          walk(full);
+        } else if (item.isFile()) {
+          const rel = path.relative(extractDir, full).replace(/\\/g, '/');
+          entries.push({
+            path: rel,
+            buffer: () => Promise.resolve(fs.readFileSync(full)),
+          });
+        }
+      }
+    }
+    walk(extractDir);
+    return {
+      entries,
+      cleanup: () => {
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      },
+    };
+  } catch (err) {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    throw err;
+  }
+}
+
+/**
+ * Reads archive entries using in-memory unzipper with automatic fallback to external extractor
+ */
+async function getArchiveEntries(archiveBuffer) {
+  try {
+    const directory = await unzipper.Open.buffer(archiveBuffer);
+    const entries = directory.files.filter((entry) => {
+      const ext = path.extname(entry.path).toLowerCase();
+      return entry.type === 'File' && SUPPORTED_EXTENSIONS.has(ext) && !entry.path.includes('__MACOSX');
+    });
+
+    // Test decompressing first entry to verify compression algorithm is supported by zlib
+    if (entries.length > 0) {
+      await entries[0].buffer();
+    }
+    return { entries, cleanup: () => {} };
+  } catch (err) {
+    // If unzipper failed (e.g. Method 95 LZMA2 / XZ or corrupted stream), fallback to 7z / tar
+    try {
+      const { entries, cleanup } = extractWithExternal(archiveBuffer);
+      const subEntries = entries.filter((e) => {
+        const ext = path.extname(e.path).toLowerCase();
+        return SUPPORTED_EXTENSIONS.has(ext) && !e.path.includes('__MACOSX');
+      });
+      return { entries: subEntries, cleanup };
+    } catch (extErr) {
+      throw new Error(`Archive extraction failed: ${err.message}`);
+    }
+  }
+}
+
 /**
  * Extracts and converts matching subtitle from in-memory ZIP archive
  */
 async function extractSubtitleFromArchive(archiveBuffer, { season = null, episode = null, requireEpisodeMatch = false } = {}) {
-  const directory = await unzipper.Open.buffer(archiveBuffer);
+  const { entries, cleanup } = await getArchiveEntries(archiveBuffer);
 
-  const entries = directory.files.filter((entry) => {
-    const ext = path.extname(entry.path).toLowerCase();
-    return entry.type === 'File' && SUPPORTED_EXTENSIONS.has(ext) && !entry.path.includes('__MACOSX');
-  });
-
-  if (entries.length === 0) {
-    throw new Error('Subtitle archive contains no supported subtitle files (.srt, .vtt, .ass)');
-  }
-
-  let ranked = entries
-    .map((entry) => ({
-      entry,
-      episodeMatch: matchesEpisode(entry.path, season, episode),
-      priority: EXTENSION_PRIORITY.get(path.extname(entry.path).toLowerCase()) ?? 99,
-    }))
-    .filter((candidate) => !requireEpisodeMatch || candidate.episodeMatch);
-
-  // If no direct regex match was found in filenames, fallback to sequential episode index in archive
-  const hasMatch = ranked.some((candidate) => candidate.episodeMatch);
-  if (!hasMatch && episode && episode >= 1) {
-    const sortedEntries = [...entries].sort((a, b) =>
-      a.path.localeCompare(b.path, undefined, { numeric: true, sensitivity: 'base' })
-    );
-    if (episode <= sortedEntries.length) {
-      const indexMatchedEntry = sortedEntries[episode - 1];
-      ranked = [{
-        entry: indexMatchedEntry,
-        episodeMatch: true,
-        priority: 0,
-      }];
+  try {
+    if (entries.length === 0) {
+      throw new Error('Subtitle archive contains no supported subtitle files (.srt, .vtt, .ass)');
     }
-  }
 
-  ranked.sort((a, b) => {
-    if (a.episodeMatch !== b.episodeMatch) return Number(b.episodeMatch) - Number(a.episodeMatch);
-    if (a.priority !== b.priority) return a.priority - b.priority;
-    return a.entry.path.localeCompare(b.entry.path, undefined, { numeric: true });
-  });
+    let ranked = entries
+      .map((entry) => ({
+        entry,
+        episodeMatch: matchesEpisode(entry.path, season, episode),
+        priority: EXTENSION_PRIORITY.get(path.extname(entry.path).toLowerCase()) ?? 99,
+      }))
+      .filter((candidate) => !requireEpisodeMatch || candidate.episodeMatch);
 
-  if (ranked.length === 0) {
-    throw new Error(`Requested S${season || 1}E${episode} was not found in the subtitle archive`);
-  }
+    const hasMatch = ranked.some((candidate) => candidate.episodeMatch);
 
-  let lastError = null;
-  for (const item of ranked) {
-    try {
-      const buffer = await item.entry.buffer();
-      const vttBody = convertToVtt(item.entry.path, buffer);
-      return {
-        body: vttBody,
-        sourceName: path.basename(item.entry.path),
-      };
-    } catch (err) {
-      lastError = err;
+    // If no direct regex match was found in filenames, handle anime absolute numbering and index offsets
+    if (!hasMatch && episode !== null && episode !== undefined && episode >= 1) {
+      const sortedEntries = [...entries].sort((a, b) =>
+        a.path.localeCompare(b.path, undefined, { numeric: true, sensitivity: 'base' })
+      );
+
+      // Check if files use absolute numbering (e.g. JJK S2 has files 25 to 47)
+      const extractedNums = sortedEntries.map((e) => extractEpisodeNumber(e.path)).filter((n) => n !== null);
+      const minEp = extractedNums.length > 0 ? Math.min(...extractedNums) : 1;
+
+      let matchedEntry = null;
+
+      if (minEp > 1) {
+        // Absolute anime offset match: target = minEp + episode - 1
+        const targetAbsolute = minEp + (episode - 1);
+        matchedEntry = sortedEntries.find((e) => extractEpisodeNumber(e.path) === targetAbsolute);
+      }
+
+      // Fallback to sequential position (episode 1 -> index 0)
+      if (!matchedEntry && episode <= sortedEntries.length) {
+        matchedEntry = sortedEntries[episode - 1];
+      }
+
+      if (matchedEntry) {
+        ranked = [{
+          entry: matchedEntry,
+          episodeMatch: true,
+          priority: 0,
+        }];
+      }
     }
-  }
 
-  throw lastError || new Error('Failed to convert any subtitle in archive to WebVTT');
+    ranked.sort((a, b) => {
+      if (a.episodeMatch !== b.episodeMatch) return Number(b.episodeMatch) - Number(a.episodeMatch);
+      if (a.priority !== b.priority) return a.priority - b.priority;
+      return a.entry.path.localeCompare(b.entry.path, undefined, { numeric: true });
+    });
+
+    if (ranked.length === 0) {
+      throw new Error(`Requested S${season || 1}E${episode} was not found in the subtitle archive`);
+    }
+
+    let lastError = null;
+    for (const item of ranked) {
+      try {
+        const buffer = await item.entry.buffer();
+        const vttBody = convertToVtt(item.entry.path, buffer);
+        return {
+          body: vttBody,
+          sourceName: path.basename(item.entry.path),
+        };
+      } catch (err) {
+        lastError = err;
+      }
+    }
+
+    throw lastError || new Error('Failed to convert any subtitle in archive to WebVTT');
+  } finally {
+    cleanup();
+  }
 }
 
 module.exports = {

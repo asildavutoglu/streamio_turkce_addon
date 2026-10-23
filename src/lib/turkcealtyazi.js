@@ -45,7 +45,8 @@ function toAbsoluteUrl(relUrl) {
  */
 async function findTitlePages(term) {
   if (!term) return [];
-  const cleanTerm = term.startsWith('tt') ? term.slice(2) : term;
+  const isImdb = /^tt?\d+$/i.test(term) || /^\d+$/.test(term);
+  const cleanTerm = isImdb ? term.replace(/^tt/i, '') : String(term).toLowerCase().trim();
 
   try {
     const res = await client.get('/things_.php', {
@@ -54,14 +55,17 @@ async function findTitlePages(term) {
 
     if (!Array.isArray(res.data)) return [];
 
-    return res.data.map((item) => ({
-      title: item.isim || item.label || '',
-      aka: item.aka || '',
-      turkishTitle: item.turkce || '',
-      year: item.yil || item.year || '',
-      imdbId: item.imdbid ? `tt${item.imdbid}` : null,
-      pageUrl: toAbsoluteUrl(item.url),
-    })).filter((item) => item.pageUrl);
+    return res.data
+      .filter((item) => item && typeof item === 'object')
+      .map((item) => ({
+        title: item.isim || item.label || '',
+        aka: item.aka || '',
+        turkishTitle: item.turkce || '',
+        year: item.yil || item.year || '',
+        imdbId: item.imdbid ? `tt${item.imdbid}` : null,
+        pageUrl: toAbsoluteUrl(item.url),
+      }))
+      .filter((item) => item.pageUrl);
   } catch (err) {
     console.error('[TurkceAltyazi] Error searching title page:', err.message);
     return [];

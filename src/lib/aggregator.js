@@ -124,8 +124,9 @@ async function aggregateSubtitles(media, baseUrl, userConfig = {}) {
 
       for (const osItem of osResults) {
         const tokenData = {
-          source: 'opensubtitles',
+          source: osItem.source || 'opensubtitles',
           fileId: osItem.fileId,
+          subUrl: osItem.subUrl,
           subFormat: osItem.subFormat,
           apiKey: osKey || undefined,
         };
@@ -230,6 +231,12 @@ async function resolveSubtitleVtt(tokenStr) {
 
     if (token.source === 'opensubtitles') {
       const vttContent = await openSubtitles.downloadOpenSubtitle(token.fileId, token.apiKey);
+      vttCache.set(tokenStr, vttContent, config.cache.subtitleTtlMs);
+      return vttContent;
+    }
+
+    if (token.source === 'opensubtitles_v3') {
+      const vttContent = await openSubtitles.downloadStremioOpenSubtitle(token.subUrl);
       vttCache.set(tokenStr, vttContent, config.cache.subtitleTtlMs);
       return vttContent;
     }

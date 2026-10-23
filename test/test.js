@@ -106,15 +106,35 @@ Dialogue: 0,0:01:20.50,0:01:23.80,Default,,0,0,0,,{\\pos(192,200)}Shingeki no Ky
   assert(onePaceSubs.length >= 2, 'En az WebVTT ve ASS altyazı bulunmalı');
   console.log(`   ✅ One Pace Romance Dawn 1 altyazıları hazır (${onePaceSubs.length} adet)`);
 
-  // Test 9: AniSub Anime Entegrasyonu (Jujutsu Kaisen via Cinemeta & Kitsu)
-  console.log('9️⃣ AniSub Anime Entegrasyonu:');
-  const { aggregateSubtitles } = require('../src/lib/aggregator');
-  const mediaJJK = await parseMediaIdentifier('series', 'tt12343534:1:1');
-  assert(mediaJJK.isAnime, 'Jujutsu Kaisen anime olarak tanınmalı');
-  assert.strictEqual(mediaJJK.title, 'Jujutsu Kaisen', 'Başlık Jujutsu Kaisen olmalı');
-  const subsJJK = await aggregateSubtitles(mediaJJK, 'http://localhost:7000');
-  assert(subsJJK.length > 0, 'Jujutsu Kaisen altyazısı bulunmalı');
-  console.log(`   ✅ Jujutsu Kaisen S1E1 altyazısı AniSub üzerinden başarıyla bulundu: "${subsJJK[0].title}"`);
+  // Test 9: AniSub Anime Entegrasyonu (Jujutsu Kaisen Season 1 & 2)
+  console.log('9️⃣ AniSub Anime Entegrasyonu (Jujutsu Kaisen):');
+  const { aggregateSubtitles, resolveSubtitleVtt } = require('../src/lib/aggregator');
+  const mediaJJK1 = await parseMediaIdentifier('series', 'tt12343534:1:1');
+  assert(mediaJJK1.isAnime, 'Jujutsu Kaisen anime olarak tanınmalı');
+  assert.strictEqual(mediaJJK1.title, 'Jujutsu Kaisen', 'Başlık Jujutsu Kaisen olmalı');
+  const subsJJK1 = await aggregateSubtitles(mediaJJK1, 'http://localhost:7000');
+  assert(subsJJK1.length > 0, 'Jujutsu Kaisen S1 altyazısı bulunmalı');
+  console.log(`   ✅ Jujutsu Kaisen S1E1 altyazısı bulundu: "${subsJJK1[0].title}"`);
+
+  // Jujutsu Kaisen Season 2 (konuşma ve diyalogların eksiksiz WebVTT akışı testi)
+  const mediaJJK2 = await parseMediaIdentifier('series', 'tt12343534:2:1');
+  const subsJJK2 = await aggregateSubtitles(mediaJJK2, 'http://localhost:7000');
+  assert(subsJJK2.length > 0, 'Jujutsu Kaisen S2 altyazısı bulunmalı');
+  const tokenJJK2 = subsJJK2[0].url.split('/').pop().replace('.vtt', '');
+  const vttJJK2 = await resolveSubtitleVtt(tokenJJK2);
+  assert(vttJJK2.startsWith('WEBVTT'), 'JJK S2 VTT başlığı olmalı');
+  assert(vttJJK2.includes('O yaz işler yoğundu.'), 'JJK S2 konuşma diyalogları eksiksiz içermeli');
+  console.log('   ✅ Jujutsu Kaisen S2E1 altyazısı başarıyla indirildi ve diyaloglar doğrulandı.');
+
+  // Test 10: Film Altyazı Kapsamı (TurkceAltyazi'de bulunmayan filmler için OpenSubtitles v3 entegrasyonu)
+  console.log('🔟 Film Altyazı Kapsamı (Oppenheimer, vb.):');
+  const mediaOppenheimer = await parseMediaIdentifier('movie', 'tt15398776');
+  const subsOppenheimer = await aggregateSubtitles(mediaOppenheimer, 'http://localhost:7000');
+  assert(subsOppenheimer.length > 0, 'Oppenheimer için Türkçe altyazı bulunmalı');
+  const tokenOpp = subsOppenheimer[0].url.split('/').pop().replace('.vtt', '');
+  const vttOpp = await resolveSubtitleVtt(tokenOpp);
+  assert(vttOpp.startsWith('WEBVTT'), 'Oppenheimer VTT başlığı olmalı');
+  console.log(`   ✅ Oppenheimer Türkçe altyazıları hazır (${subsOppenheimer.length} adet).`);
 
   console.log('\n🎉 TÜM TESTLER BAŞARIYLA TAMAMLANDI!\n');
 }

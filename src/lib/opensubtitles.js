@@ -1,25 +1,55 @@
 const axios = require('axios');
 const config = require('../config');
-const { srtToVtt, normalizeVtt } = require('./archive');
+const { srtToVtt, normalizeVtt, decodeSubtitle } = require('./archive');
 
-const BASE_URL = config.openSubtitles.baseUrl;
+const OFFICIAL_BASE_URL = config.openSubtitles.baseUrl;
+const STREMIO_OS_BASE_URL = 'https://opensubtitles-v3.strem.io';
 
 /**
- * Searches subtitles on OpenSubtitles.com API v3
- * @param {object} params
- * @param {string} [params.imdbId] - e.g. "tt1375666" or "1375666"
- * @param {string} [params.query] - Movie or anime title
- * @param {string} [params.type] - "movie" or "episode"
- * @param {number} [params.season]
- * @param {number} [params.episode]
- * @param {string} [params.apiKey]
+ * Searches subtitles via Stremio's free OpenSubtitles v3 proxy (requires NO API key)
  */
-async function searchOpenSubtitles({ imdbId, query, type, season, episode, apiKey = config.openSubtitles.apiKey }) {
-  if (!apiKey) {
-    // OpenSubtitles v3 requires an API Consumer key
+async function searchStremioOpenSubtitles({ imdbId, type, season, episode }) {
+  if (!imdbId) return [];
+  const cleanId = String(imdbId).startsWith('tt') ? imdbId : `tt${imdbId}`;
+  const isSeries = type === 'series' || season !== null || episode !== null;
+  const stremioType = isSeries ? 'series' : 'movie';
+  const stremioId = isSeries ? `${cleanId}:${season || 1}:${episode || 1}` : cleanId;
+
+  try {
+    const res = await axios.get(`${STREMIO_OS_BASE_URL}/subtitles/${stremioType}/${stremioId}.json`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        Accept: 'application/json',
+      },
+      timeout: 7000,
+    });
+
+    const subtitles = res.data?.subtitles || [];
+    return subtitles
+      .filter((item) => item.lang === 'tur')
+      .map((item) => {
+        const release = item.subtitleFileName || item.movieReleaseName || 'Türkçe Altyazı';
+        return {
+          source: 'opensubtitles_v3',
+          fileId: String(item.id),
+          subUrl: item.url,
+          subFormat: item.url.endsWith('.vtt') ? 'vtt' : 'srt',
+          description: release,
+          uploader: item.releaseGroup || '',
+          downloadCount: 0,
+          ratings: 0,
+        };
+      });
+  } catch (err) {
+    console.error('[OpenSubtitles-v3] Proxy search error:', err.message);
     return [];
   }
+}
 
+/**
+ * Searches subtitles on OpenSubtitles.com official API v3
+ */
+async function searchOfficialOpenSubtitles({ imdbId, query, type, season, episode, apiKey }) {
   const queryParams = {
     languages: 'tr',
     order_by: 'download_count',
@@ -44,7 +74,7 @@ async function searchOpenSubtitles({ imdbId, query, type, season, episode, apiKe
   }
 
   try {
-    const res = await axios.get(`${BASE_URL}/subtitles`, {
+    const res = await axios.get(`${OFFICIAL_BASE_URL}/subtitles`, {
       params: queryParams,
       headers: {
         'Api-Key': apiKey,
@@ -81,10 +111,23 @@ async function searchOpenSubtitles({ imdbId, query, type, season, episode, apiKe
     if (err.response?.status === 401 || err.response?.status === 403) {
       console.warn('[OpenSubtitles] Invalid or missing API key.');
     } else {
-      console.error('[OpenSubtitles] Search failed:', err.message);
+      console.error('[OpenSubtitles] Official API search failed:', err.message);
     }
     return [];
   }
+}
+
+/**
+ * Main search function: checks official API first if key provided, and falls back to Stremio OpenSubtitles v3 proxy
+ */
+async function searchOpenSubtitles({ imdbId, query, type, season, episode, apiKey = config.openSubtitles.apiKey }) {
+  if (apiKey) {
+    const officialResults = await searchOfficialOpenSubtitles({ imdbId, query, type, season, episode, apiKey });
+    if (officialResults.length > 0) return officialResults;
+  }
+
+  // Fallback to Stremio's free OpenSubtitles v3 service (works for all movies & series with no key required)
+  return searchStremioOpenSubtitles({ imdbId, type, season, episode });
 }
 
 /**
@@ -96,7 +139,7 @@ async function downloadOpenSubtitle(fileId, apiKey = config.openSubtitles.apiKey
   }
 
   const res = await axios.post(
-    `${BASE_URL}/download`,
+    `${OFFICIAL_BASE_URL}/download`,
     { file_id: Number(fileId) },
     {
       headers: {
@@ -114,23 +157,39 @@ async function downloadOpenSubtitle(fileId, apiKey = config.openSubtitles.apiKey
     throw new Error('OpenSubtitles did not return a download link');
   }
 
-  // Fetch the subtitle file itself
   const subFileRes = await axios.get(downloadLink, {
     responseType: 'arraybuffer',
     timeout: 10000,
   });
 
-  const rawBuffer = Buffer.from(subFileRes.data);
-  const text = rawBuffer.toString('utf8');
-
-  // Convert to WebVTT
-  if (text.trim().startsWith('WEBVTT')) {
-    return normalizeVtt(text);
+  const decoded = decodeSubtitle(Buffer.from(subFileRes.data));
+  if (decoded.trim().startsWith('WEBVTT')) {
+    return normalizeVtt(decoded);
   }
-  return srtToVtt(text);
+  return srtToVtt(decoded);
+}
+
+/**
+ * Downloads and converts subtitle from Stremio OpenSubtitles CDN
+ */
+async function downloadStremioOpenSubtitle(subUrl) {
+  const res = await axios.get(subUrl, {
+    responseType: 'arraybuffer',
+    timeout: 10000,
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    },
+  });
+
+  const decoded = decodeSubtitle(Buffer.from(res.data));
+  if (decoded.trim().startsWith('WEBVTT')) {
+    return normalizeVtt(decoded);
+  }
+  return srtToVtt(decoded);
 }
 
 module.exports = {
   searchOpenSubtitles,
   downloadOpenSubtitle,
+  downloadStremioOpenSubtitle,
 };
