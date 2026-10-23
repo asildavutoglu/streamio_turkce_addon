@@ -291,7 +291,7 @@ try {
 } catch {}
 
 /**
- * Extracts archive using 7za (or system tar as fallback)
+ * Extracts archive using 7za, tar, or unzip as fallback
  * Supports ZIP with LZMA2/XZ Method 95, Deflate64, 7z, etc. on all platforms
  */
 function extractWithExternal(archiveBuffer) {
@@ -302,17 +302,53 @@ function extractWithExternal(archiveBuffer) {
   fs.mkdirSync(extractDir);
 
   try {
+    let extracted = false;
+
+    // 1. Try 7za (ensure executable permissions on Unix/Linux)
     if (path7za && fs.existsSync(path7za)) {
-      execFileSync(path7za, ['x', zipPath, `-o${extractDir}`, '-y'], {
-        windowsHide: true,
-        timeout: 15000,
-        stdio: 'ignore',
-      });
-    } else {
-      execFileSync('tar', ['-xf', zipPath, '-C', extractDir], {
-        windowsHide: true,
-        timeout: 15000,
-      });
+      if (process.platform !== 'win32') {
+        try {
+          fs.chmodSync(path7za, 0o755);
+        } catch {}
+      }
+      try {
+        execFileSync(path7za, ['x', zipPath, `-o${extractDir}`, '-y'], {
+          windowsHide: true,
+          timeout: 15000,
+          stdio: 'ignore',
+        });
+        extracted = true;
+      } catch (e7) {
+        // Fallback to other tools if 7za fails
+      }
+    }
+
+    // 2. Fallback to system tar
+    if (!extracted) {
+      try {
+        execFileSync('tar', ['-xf', zipPath, '-C', extractDir], {
+          windowsHide: true,
+          timeout: 15000,
+          stdio: 'ignore',
+        });
+        extracted = true;
+      } catch (etar) {}
+    }
+
+    // 3. Fallback to system unzip
+    if (!extracted) {
+      try {
+        execFileSync('unzip', ['-q', '-o', zipPath, '-d', extractDir], {
+          windowsHide: true,
+          timeout: 15000,
+          stdio: 'ignore',
+        });
+        extracted = true;
+      } catch (eunzip) {}
+    }
+
+    if (!extracted) {
+      throw new Error('No external extraction tool (7za, tar, unzip) could decompress the archive');
     }
 
     const entries = [];
